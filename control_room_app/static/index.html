@@ -1,0 +1,2213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bahn Car Delivery Control Room</title>
+  
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Google Fonts: Plus Jakarta Sans & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Leaflet.js for Interactive Maps -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #F8F9FA;
+      color: #121417;
+    }
+    .font-mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: #F1F3F5;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #CED4DA;
+      border-radius: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #ADB5BD;
+    }
+    /* Pulse badge */
+    @keyframes pulse-dot {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.4); opacity: 0.6; }
+    }
+    .pulse-urgent {
+      animation: pulse-dot 1.5s infinite;
+    }
+    /* Toast styles */
+    #toast-container {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      pointer-events: none;
+    }
+    .toast-msg {
+      pointer-events: auto;
+      padding: 12px 18px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      transition: all 0.3s ease;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    /* Leaflet hover tooltip styling */
+    .leaflet-tooltip.custom-hover-tip {
+      background: #121417;
+      color: #ffffff;
+      border: 1px solid #374151;
+      border-radius: 6px;
+      font-size: 12px;
+      padding: 6px 10px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    }
+    .leaflet-tooltip-left:before, .leaflet-tooltip-right:before, .leaflet-tooltip-top:before, .leaflet-tooltip-bottom:before {
+      border: none !important;
+    }
+  </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden relative">
+
+  <!-- TOAST CONTAINER -->
+  <div id="toast-container"></div>
+
+  <!-- INLINE ACTION CONFIRMATION & 5S UNDO BANNER -->
+  <div id="action-undo-bar" class="hidden fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-[#121417] text-white px-5 py-3.5 rounded-xl shadow-2xl border-2 border-amber-400 flex items-center space-x-4 max-w-lg w-full transition-all duration-300">
+    <div class="w-8 h-8 rounded-full bg-amber-400 text-black flex items-center justify-center font-extrabold text-xs shrink-0 animate-pulse">
+      <i data-lucide="clock" class="w-4 h-4"></i>
+    </div>
+    <div class="flex-1 min-w-0">
+      <div class="flex items-center space-x-2">
+        <span class="text-[10px] uppercase font-bold text-amber-400">Action Scheduled</span>
+        <span class="text-[10px] text-gray-400">• Executing in <strong id="undo-countdown-text" class="text-white font-mono font-bold">5s</strong></span>
+      </div>
+      <p id="undo-action-title" class="text-xs font-bold text-gray-100 truncate mt-0.5">Authorizing Action</p>
+    </div>
+    <div class="flex items-center space-x-2 shrink-0">
+      <button onclick="cancelPendingAction()" class="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1">
+        <i data-lucide="x" class="w-3.5 h-3.5"></i>
+        <span>Undo</span>
+      </button>
+      <button onclick="executePendingActionNow()" class="px-3 py-1.5 bg-amber-400 hover:bg-amber-300 text-black rounded-lg text-xs font-bold transition flex items-center space-x-1">
+        <i data-lucide="check" class="w-3.5 h-3.5"></i>
+        <span>Execute Now</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- TOP APP HEADER -->
+  <header class="h-16 bg-[#121417] text-white flex items-center justify-between px-6 border-b border-gray-800 shrink-0 shadow-md">
+    <!-- Left: Logo & Top Navigation -->
+    <div class="flex items-center space-x-6">
+      <div class="flex items-center space-x-3 cursor-pointer" onclick="goToFleetView()">
+        <img src="/static/bahn-logo.png" alt="Bahn Logo" class="w-8 h-8 rounded object-contain bg-white p-0.5">
+        <div>
+          <span class="font-extrabold text-sm tracking-wider uppercase text-amber-400">BAHN</span>
+          <span class="text-xs text-gray-300 font-semibold ml-1.5">Control Room</span>
+        </div>
+      </div>
+
+      <!-- Main Navigation Buttons -->
+      <nav class="flex items-center space-x-1 bg-gray-900 p-1 rounded-lg border border-gray-800 text-xs">
+        <button id="nav-btn-fleet" onclick="goToFleetView()" class="px-3 py-1.5 rounded-md font-semibold bg-amber-500 text-black flex items-center space-x-1.5 transition">
+          <i data-lucide="car" class="w-3.5 h-3.5"></i>
+          <span id="nav-fleet-label">Fleet Overview</span>
+        </button>
+        <button id="nav-btn-inbox" onclick="switchGlobalView('inbox')" class="px-3 py-1.5 rounded-md font-medium text-gray-300 hover:text-white flex items-center space-x-1.5 transition">
+          <i data-lucide="inbox" class="w-3.5 h-3.5"></i>
+          <span>Support Inbox</span>
+          <span id="nav-inbox-badge" class="bg-amber-500 text-black px-1.5 py-0.2 rounded-full font-bold text-[10px]">4</span>
+        </button>
+        <button id="nav-btn-history" onclick="switchGlobalView('history')" class="px-3 py-1.5 rounded-md font-medium text-gray-300 hover:text-white flex items-center space-x-1.5 transition">
+          <i data-lucide="history" class="w-3.5 h-3.5"></i>
+          <span>Operations Audit Log</span>
+        </button>
+        <button id="nav-btn-finance" onclick="switchGlobalView('finance')" class="px-3 py-1.5 rounded-md font-medium text-gray-300 hover:text-white flex items-center space-x-1.5 transition">
+          <i data-lucide="coins" class="w-3.5 h-3.5"></i>
+          <span>Financials & Earnings</span>
+        </button>
+      </nav>
+    </div>
+
+    <!-- Right: Operator ID & Info Popover -->
+    <div class="flex items-center space-x-3 text-xs">
+      <!-- Operator ID Pill -->
+      <div class="bg-gray-800/90 hover:bg-gray-800 border border-gray-700 px-3 py-1.5 rounded-lg flex items-center space-x-2 cursor-pointer transition" onclick="promptOperatorId()">
+        <i data-lucide="shield" class="w-3.5 h-3.5 text-amber-400"></i>
+        <span>Operator: <strong id="operator-display" class="text-white">OP-042</strong></span>
+        <i data-lucide="edit-2" class="w-3 h-3 text-gray-400"></i>
+      </div>
+
+      <!-- Info Button (Opens Credit & System Status) -->
+      <button onclick="toggleInfoModal()" class="w-8 h-8 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 hover:text-white flex items-center justify-center transition" title="System Info & Credits">
+        <i data-lucide="info" class="w-4 h-4 text-amber-400"></i>
+      </button>
+
+      <!-- AI Assistant Button in Top Bar -->
+      <button onclick="toggleAiSidebar()" class="px-3 py-1.5 rounded-lg bg-purple-700 hover:bg-purple-600 text-white font-bold flex items-center space-x-1.5 transition shadow-xs">
+        <i data-lucide="bot" class="w-3.5 h-3.5"></i>
+        <span>AI Assistant</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ================= VIEW 1: FLEET OVERVIEW (HOME) ================= -->
+  <div id="view-home" class="flex-1 flex flex-col overflow-hidden bg-white">
+    
+    <!-- SUB-HEADER: STATUS FILTER & CONTROLS -->
+    <div class="bg-white border-b border-gray-200 px-8 py-3.5 flex items-center justify-between shrink-0 shadow-xs">
+      
+      <!-- Left Filters: Status & Problems -->
+      <div class="flex items-center space-x-3 text-xs">
+        <!-- Status Filter Tabs (Starts with All Cars by default) -->
+        <div class="flex bg-gray-100 p-1 rounded-lg border border-gray-200 font-semibold">
+          <button id="btn-status-all" onclick="setStatusFilter('all')" class="px-3.5 py-1.5 rounded-md bg-white text-black font-bold shadow-xs transition">
+            All Cars (<span id="count-all">100</span>)
+          </button>
+          <button id="btn-status-ok" onclick="setStatusFilter('ok')" class="px-3.5 py-1.5 rounded-md text-emerald-800 hover:bg-white transition flex items-center space-x-1">
+            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+            <span>OK / On Track (<span id="count-ok">78</span>)</span>
+          </button>
+          <button id="btn-status-not-ok" onclick="setStatusFilter('not_ok')" class="px-3.5 py-1.5 rounded-md text-rose-700 hover:bg-white transition flex items-center space-x-1.5">
+            <i data-lucide="alert-triangle" class="w-3.5 h-3.5"></i>
+            <span>Needs Attention (<span id="count-not-ok">22</span>)</span>
+          </button>
+        </div>
+
+        <!-- Problem Dropdown Filter -->
+        <div id="problem-filter-box" class="flex items-center space-x-2">
+          <span class="text-gray-400 text-[11px] font-bold uppercase">Issue Category:</span>
+          <select id="problem-select" onchange="onProblemSelectChange()" class="border border-gray-300 rounded-lg px-2.5 py-1.5 bg-gray-50 text-gray-800 text-xs font-semibold focus:outline-none focus:border-amber-500">
+            <option value="all">All Issues (22)</option>
+            <option value="breakdown">Road Breakdowns & Warnings (1)</option>
+            <option value="ferry">Ferry Capacity & Disruption (2)</option>
+            <option value="documents">Missing Documents & Gate Release (11)</option>
+            <option value="schedule">Schedule & Relay Delays (5)</option>
+            <option value="claims">Post-Delivery Damage Claims (3)</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Right Controls: Sorting & Search -->
+      <div class="flex items-center space-x-3 text-xs">
+        <div class="flex items-center space-x-1.5">
+          <span class="text-gray-400 text-[11px] font-bold uppercase">Sort:</span>
+          <select id="sort-select" onchange="onSortChange()" class="border border-gray-300 rounded-lg px-2.5 py-1.5 bg-gray-50 text-gray-800 text-xs font-semibold focus:outline-none focus:border-amber-500">
+            <option value="newest" selected>Newest Orders</option>
+            <option value="critical">Critical Attention First</option>
+            <option value="oldest">Oldest Orders</option>
+            <option value="alphabetical">Vehicle Make & Model</option>
+            <option value="status">Transit Status</option>
+          </select>
+        </div>
+
+        <div class="relative w-72">
+          <i data-lucide="search" class="w-3.5 h-3.5 absolute left-3 top-2.5 text-gray-400"></i>
+          <input type="text" id="fleet-search" oninput="onSearchInput()" placeholder="Search car, driver, plate, city, ref..." class="w-full text-xs pl-9 pr-3 py-1.5 border border-gray-300 rounded-lg bg-gray-50 focus:bg-white focus:outline-none focus:border-amber-500 transition">
+        </div>
+      </div>
+    </div>
+
+    <!-- MAIN FLEET TABLE -->
+    <div class="flex-1 overflow-y-auto custom-scrollbar px-8 py-4">
+      <div class="border border-gray-200 rounded-xl overflow-hidden shadow-xs bg-white">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead class="bg-gray-50/80 border-b border-gray-200 text-gray-500 font-bold uppercase tracking-wider text-[11px] sticky top-0 z-10">
+            <tr>
+              <th class="p-3.5 pl-4">Order Ref</th>
+              <th class="p-3.5">Vehicle</th>
+              <th class="p-3.5">Corridor Route</th>
+              <th class="p-3.5">Current Position</th>
+              <th class="p-3.5">Assigned Driver</th>
+              <th class="p-3.5">Operational Condition</th>
+              <th class="p-3.5 pr-4 text-right">Action</th>
+            </tr>
+          </thead>
+          <tbody id="fleet-table-tbody" class="divide-y divide-gray-100">
+            <!-- Dynamically populated rows -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= VIEW 2: CAR DETAIL DOSSIER ================= -->
+  <div id="view-car-detail" class="hidden flex-1 flex flex-col overflow-hidden bg-[#F8F9FA]">
+    
+    <!-- TOP BREADCRUMB / BACK BAR -->
+    <div class="h-12 bg-white border-b border-gray-200 px-8 flex items-center justify-between shrink-0">
+      <div class="flex items-center space-x-3">
+        <button onclick="goBackToFleetTable()" class="flex items-center space-x-1.5 text-xs font-bold text-gray-700 hover:text-black transition">
+          <i data-lucide="arrow-left" class="w-4 h-4"></i>
+          <span>All Cars</span>
+        </button>
+        <span class="text-gray-300">/</span>
+        <span class="text-gray-500 font-mono text-[11px]" id="detail-nav-id">ORD-00322</span>
+        <span class="text-gray-300">•</span>
+        <span class="font-bold text-gray-900" id="detail-nav-car">2022 Bentley Continental GT</span>
+      </div>
+
+      <div class="flex items-center space-x-2 text-xs">
+        <button onclick="openAiSidebarForCar()" class="px-3 py-1.5 rounded-lg bg-purple-50 text-purple-800 hover:bg-purple-100 border border-purple-200 font-bold flex items-center space-x-1.5 transition">
+          <i data-lucide="sparkles" class="w-3.5 h-3.5 text-purple-600"></i>
+          <span>Ask AI About This Car</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- MAIN DOSSIER SCROLLABLE CONTENT -->
+    <div class="flex-1 overflow-y-auto custom-scrollbar p-8 max-w-6xl w-full mx-auto space-y-6">
+
+      <!-- VEHICLE DELIVERY PIPELINE STEPPER -->
+      <div class="bg-white rounded-xl border border-gray-200 p-4 shadow-xs">
+        <div class="flex items-center justify-between text-xs font-bold text-gray-500 mb-2.5">
+          <span class="uppercase tracking-wider text-[11px] text-gray-400">Order Delivery Pipeline</span>
+          <span id="pipeline-current-status" class="font-mono text-gray-800 bg-gray-100 px-2 py-0.5 rounded text-[11px]">STATUS: WAITING_FOR_PICKUP</span>
+        </div>
+        <div id="pipeline-stepper" class="grid grid-cols-5 gap-2 text-xs">
+          <!-- Dynamically populated 5 steps -->
+        </div>
+      </div>
+
+      <!-- VEHICLE HERO HEADER CARD -->
+      <div class="bg-white rounded-xl border border-gray-200 p-6 shadow-sm flex items-start justify-between">
+        <div class="flex items-start space-x-6">
+          <div class="w-44 h-28 rounded-lg bg-gray-100 border border-gray-200 overflow-hidden flex items-center justify-center shrink-0 cursor-pointer shadow-xs hover:opacity-95" onclick="openPhotoModal(document.getElementById('detail-car-image').src, 'Vehicle Master Reference')">
+            <img id="detail-car-image" src="" alt="Vehicle" class="w-full h-full object-cover">
+          </div>
+
+          <div>
+            <div class="flex items-center space-x-2">
+              <span id="detail-ref" class="text-xs font-mono font-bold bg-gray-100 text-gray-800 px-2.5 py-0.5 rounded">CD-420322</span>
+              <span id="detail-lane" class="text-xs uppercase font-bold px-2 py-0.5 rounded bg-blue-50 text-blue-700">Moving</span>
+              <span id="detail-condition-badge" class="text-xs font-bold px-2.5 py-0.5 rounded bg-rose-100 text-rose-800">Critical Attention</span>
+            </div>
+            <h1 id="detail-car-title" class="text-2xl font-black text-gray-900 mt-1.5">2022 Bentley Continental GT</h1>
+            <div class="flex items-center space-x-3 text-xs text-gray-500 mt-1">
+              <span>Plate: <strong id="detail-plate" class="text-gray-900 font-mono font-bold">DEMO-DE-BENTLEY</strong></span>
+              <span>•</span>
+              <span>Customer: <strong id="detail-customer-name" class="text-gray-800">Autohaus Nord</strong></span>
+              <span>•</span>
+              <span>Driver: <strong id="detail-driver-name" class="text-gray-800">Kasper Kovelund</strong></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="text-right">
+          <span class="text-xs text-gray-400 font-semibold uppercase">Transit Status</span>
+          <div id="detail-status" class="text-sm font-extrabold text-gray-900 mt-0.5 uppercase">INVESTIGATING</div>
+          <div id="detail-route-summary" class="text-xs text-gray-600 mt-1 font-medium">Munich → Hamburg</div>
+        </div>
+      </div>
+
+      <!-- TABS SWITCHER -->
+      <div class="flex border-b border-gray-200 space-x-6 text-xs font-bold">
+        <button id="tab-btn-triage" onclick="switchDossierTab('triage')" class="pb-2.5 border-b-2 border-amber-500 text-amber-950 flex items-center space-x-1.5">
+          <i data-lucide="check-square" class="w-4 h-4"></i>
+          <span>Triage & Actions</span>
+        </button>
+        <button id="tab-btn-map" onclick="switchDossierTab('map')" class="pb-2.5 border-b-2 border-transparent text-gray-500 hover:text-gray-800 flex items-center space-x-1.5">
+          <i data-lucide="navigation" class="w-4 h-4"></i>
+          <span>Route Map</span>
+        </button>
+        <!-- Conditional Ferry Tab (Only shown if maritime crossing exists) -->
+        <button id="tab-btn-travel" onclick="switchDossierTab('travel')" class="hidden pb-2.5 border-b-2 border-transparent text-gray-500 hover:text-gray-800 flex items-center space-x-1.5">
+          <i data-lucide="ship" class="w-4 h-4"></i>
+          <span>Ferry & Sea</span>
+          <span id="tab-travel-count" class="bg-gray-200 text-gray-700 px-1.5 py-0.2 rounded-full text-[10px]">0</span>
+        </button>
+        <button id="tab-btn-gallery" onclick="switchDossierTab('gallery')" class="pb-2.5 border-b-2 border-transparent text-gray-500 hover:text-gray-800 flex items-center space-x-1.5">
+          <i data-lucide="file-check" class="w-4 h-4"></i>
+          <span>Documents & Proofs</span>
+          <span id="tab-gallery-count" class="bg-gray-200 text-gray-700 px-1.5 py-0.2 rounded-full text-[10px]">0</span>
+        </button>
+        <button id="tab-btn-chat" onclick="switchDossierTab('chat')" class="pb-2.5 border-b-2 border-transparent text-gray-500 hover:text-gray-800 flex items-center space-x-1.5">
+          <i data-lucide="message-circle" class="w-4 h-4"></i>
+          <span>Driver & Customer Chat</span>
+        </button>
+        <button id="tab-btn-parties" onclick="switchDossierTab('parties')" class="pb-2.5 border-b-2 border-transparent text-gray-500 hover:text-gray-800 flex items-center space-x-1.5">
+          <i data-lucide="users" class="w-4 h-4"></i>
+          <span>Driver & Dealer</span>
+        </button>
+      </div>
+
+      <!-- TAB 1: TRIAGE & ACTIONS -->
+      <div id="dossier-tab-triage" class="space-y-6">
+        <!-- Situation Banner -->
+        <div id="detail-alert-box" class="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 shadow-xs">
+          <div class="flex items-center space-x-2 font-bold text-sm">
+            <i data-lucide="alert-octagon" class="w-4 h-4 text-rose-600"></i>
+            <span id="detail-alert-title">Operational Situation</span>
+          </div>
+          <p id="detail-alert-desc" class="text-xs text-rose-800 mt-1 leading-relaxed">
+            Inspection required before onward movement.
+          </p>
+        </div>
+
+        <!-- RECOMMENDED OPERATOR ACTIONS -->
+        <div class="bg-amber-50/90 rounded-xl border-2 border-amber-400 p-5 shadow-xs space-y-3">
+          <div class="flex items-center justify-between border-b border-amber-200/80 pb-2.5">
+            <div class="flex items-center space-x-2">
+              <i data-lucide="sparkles" class="w-4 h-4 text-amber-700"></i>
+              <h3 class="text-sm font-bold text-amber-950">Recommended Operator Actions</h3>
+            </div>
+            <span class="text-xs text-amber-900">Signed as: <strong id="decision-operator-label">OP-042</strong></span>
+          </div>
+
+          <div id="dynamic-decision-container" class="grid grid-cols-2 gap-3 pt-1">
+            <!-- Dynamically populated buttons -->
+          </div>
+        </div>
+
+        <!-- OPERATIONAL VERIFICATION CHECKS -->
+        <div class="bg-white rounded-xl border border-gray-200 p-5 shadow-xs space-y-3">
+          <div class="flex items-center justify-between border-b border-gray-100 pb-2">
+            <h4 class="text-xs font-bold uppercase text-gray-700">Dispatch Status & Telemetry Verification</h4>
+            <span class="text-[10px] text-emerald-700 font-bold">Verified Live</span>
+          </div>
+          <div id="detail-checklist" class="space-y-2 text-xs"></div>
+        </div>
+      </div>
+
+      <!-- TAB 2: MARITIME & FERRY TRANSIT (CONDITIONAL) -->
+      <div id="dossier-tab-travel" class="hidden space-y-6">
+        <div class="bg-white rounded-xl border border-gray-200 p-6 shadow-xs space-y-6">
+          <div class="flex items-center justify-between border-b border-gray-100 pb-3">
+            <div>
+              <h3 class="text-sm font-bold text-gray-900 flex items-center space-x-2">
+                <i data-lucide="ship" class="w-4 h-4 text-blue-600"></i>
+                <span>Ferry Bookings & Port Check-In</span>
+              </h3>
+              <p class="text-xs text-gray-500 mt-0.5">Maritime vessel allocations and check-in cutoffs</p>
+            </div>
+            <span class="text-xs font-mono font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded border border-blue-200">Baltic Sea Corridors</span>
+          </div>
+
+          <div id="travel-booked-list" class="space-y-3">
+            <!-- Booked reservations dynamically loaded -->
+          </div>
+
+          <!-- Quoted Alternatives -->
+          <div class="border-t border-gray-100 pt-5 space-y-3">
+            <h4 class="text-xs font-extrabold text-gray-800 uppercase tracking-wider flex items-center space-x-1.5">
+              <i data-lucide="search" class="w-3.5 h-3.5 text-gray-400"></i>
+              <span>Available Alternative Sailings</span>
+            </h4>
+            <div id="travel-options-list" class="grid grid-cols-2 gap-3">
+              <!-- Available sailings populated dynamically -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 3: DOCUMENTS & EVIDENCE PROOFS -->
+      <div id="dossier-tab-gallery" class="hidden space-y-6">
+        <!-- CMR and Document Verification State -->
+        <div class="bg-white rounded-xl border border-gray-200 p-5 shadow-xs space-y-4">
+          <div class="flex items-center justify-between border-b border-gray-100 pb-2">
+            <h3 class="text-sm font-bold text-gray-900 flex items-center space-x-2">
+              <i data-lucide="file-text" class="w-4 h-4 text-purple-600"></i>
+              <span>Legal Handover Documents & Consignment Notes</span>
+            </h3>
+            <span class="text-xs text-gray-500">CMR & Commercial Release Authority</span>
+          </div>
+          <div id="docs-verification-grid" class="grid grid-cols-3 gap-3">
+            <!-- Document status badges populated dynamically -->
+          </div>
+        </div>
+
+        <!-- Verified Proof Records (from proofs.jsonl) -->
+        <div class="bg-white rounded-xl border border-gray-200 p-5 shadow-xs space-y-4">
+          <div class="flex items-center justify-between border-b border-gray-100 pb-2">
+            <h3 class="text-sm font-bold text-gray-900 flex items-center space-x-2">
+              <i data-lucide="shield-check" class="w-4 h-4 text-emerald-600"></i>
+              <span>Verified Handover Proofs & Inspection Records</span>
+            </h3>
+            <span class="text-xs text-gray-500">Origin, Delivery & Odometer Submissions</span>
+          </div>
+          <div id="proofs-records-grid" class="grid grid-cols-3 gap-3">
+            <!-- Proof records populated dynamically -->
+          </div>
+        </div>
+
+        <!-- Attachment Photos & Receipts Grid -->
+        <div class="bg-white rounded-xl border border-gray-200 p-6 shadow-xs space-y-4">
+          <div class="flex items-center justify-between border-b border-gray-100 pb-3">
+            <div>
+              <h3 class="text-sm font-bold text-gray-900">Physical Photo & Proof Gallery</h3>
+              <p class="text-xs text-gray-500 mt-0.5">Origin condition, collection signatures, and odometer photos</p>
+            </div>
+            <span id="gallery-total-badge" class="text-xs font-mono font-bold bg-gray-100 text-gray-700 px-2.5 py-1 rounded">0 Files Linked</span>
+          </div>
+
+          <div id="gallery-grid-container" class="grid grid-cols-4 gap-4">
+            <!-- Gallery images -->
+          </div>
+        </div>
+
+        <!-- Expense Claims & Receipts -->
+        <div id="dossier-expenses-section" class="bg-white rounded-xl border border-gray-200 p-5 shadow-xs space-y-3">
+          <h4 class="text-xs font-bold uppercase text-gray-700">Trip Expenses & Fuel Receipts on File</h4>
+          <div id="dossier-expenses-list" class="space-y-2 text-xs"></div>
+        </div>
+      </div>
+
+      <!-- TAB 4: REAL HIGHWAY ROUTE & MAP -->
+      <div id="dossier-tab-map" class="hidden space-y-4">
+        <div class="bg-white rounded-xl border border-gray-200 p-4 shadow-xs">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center space-x-2">
+              <i data-lucide="map-pin" class="w-4 h-4 text-amber-500"></i>
+              <h3 class="text-xs font-extrabold uppercase text-gray-800">Highway Transit Corridor Route</h3>
+            </div>
+            <button onclick="recenterMap()" class="px-2.5 py-1 text-[11px] font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 rounded transition flex items-center space-x-1">
+              <i data-lucide="crosshair" class="w-3 h-3"></i>
+              <span>Recenter Route</span>
+            </button>
+          </div>
+          <div id="leaflet-map-container" class="w-full h-80 rounded-lg border border-gray-200 z-0"></div>
+          <div class="text-[11px] text-gray-500 mt-2 flex items-center justify-between">
+            <span>Hover cursor over pins or route lines to inspect waypoints and road details.</span>
+            <span class="font-mono text-[10px] text-gray-400">Real Highway Geometry Active</span>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-xl border border-gray-200 p-5 shadow-xs space-y-3">
+          <h4 class="text-xs font-bold uppercase text-gray-700">Trip Waypoints & Milestones</h4>
+          <div id="map-waypoints-list" class="divide-y divide-gray-100 text-xs"></div>
+        </div>
+      </div>
+
+      <!-- TAB 5: DRIVER & CUSTOMER CHAT -->
+      <div id="dossier-tab-chat" class="hidden space-y-4">
+        <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-xs flex flex-col h-[540px]">
+          <div class="bg-[#075E54] text-white p-3.5 flex items-center justify-between shrink-0">
+            <div class="flex items-center space-x-3">
+              <div class="w-8 h-8 rounded-full bg-emerald-700 flex items-center justify-center font-bold text-xs uppercase">
+                <i data-lucide="message-square" class="w-4 h-4"></i>
+              </div>
+              <div>
+                <strong id="chat-counterparty-name" class="text-xs block">Assigned Driver & Customer Channel</strong>
+                <span class="text-[10px] text-emerald-200">Dispatch Interface • Operator Authorized</span>
+              </div>
+            </div>
+            <span class="text-[10px] bg-emerald-800 px-2.5 py-1 rounded text-emerald-100 font-mono font-bold">OPERATOR ACTIVE</span>
+          </div>
+
+          <div id="wa-messages-container" class="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-3 bg-[#E5DDD5]">
+            <!-- WhatsApp Bubbles with explicit Actor Labels -->
+          </div>
+
+          <div class="bg-amber-50 p-2 text-[10px] text-amber-900 border-t border-amber-200 text-center">
+            Policy Notice: All outbound communications are signed as Human Operator (<span class="font-bold">OP-042</span>). Autonomous AI agents cannot contact customers directly.
+          </div>
+
+          <form onsubmit="handleSendDriverMessage(event)" class="bg-[#F0F0F0] p-3 flex items-center space-x-2 shrink-0 border-t border-gray-200">
+            <input type="text" id="wa-input" placeholder="Type instruction to driver as Operator OP-042..." class="flex-1 text-xs border border-gray-300 rounded-full px-4 py-2.5 bg-white focus:outline-none focus:border-emerald-600">
+            <button type="submit" class="w-9 h-9 rounded-full bg-[#075E54] hover:bg-[#128C7E] text-white flex items-center justify-center transition shadow-xs">
+              <i data-lucide="send" class="w-4 h-4"></i>
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <!-- TAB 6: DRIVER & DEALER DETAILS -->
+      <div id="dossier-tab-parties" class="hidden grid grid-cols-2 gap-6">
+        <div class="bg-white rounded-xl border border-gray-200 p-6 shadow-xs space-y-4">
+          <div class="flex items-center space-x-3 border-b border-gray-100 pb-3">
+            <div class="w-10 h-10 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center font-black text-sm">
+              <i data-lucide="user" class="w-5 h-5"></i>
+            </div>
+            <div>
+              <h3 id="party-driver-name" class="text-sm font-extrabold text-gray-900">Kasper Kovelund</h3>
+              <span class="text-xs text-gray-500">Freelance Network Driver</span>
+            </div>
+          </div>
+          <div class="space-y-2 text-xs">
+            <div class="flex justify-between py-1 border-b border-gray-50"><span class="text-gray-500">Driver ID:</span><span id="party-driver-id" class="font-mono font-bold text-gray-800">drv-112</span></div>
+            <div class="flex justify-between py-1 border-b border-gray-50"><span class="text-gray-500">Home Base:</span><span id="party-driver-city" class="text-gray-800">Aarhus, DK</span></div>
+            <div class="flex justify-between py-1 border-b border-gray-50"><span class="text-gray-500">Agreed Duty Fee:</span><span id="party-driver-fee" class="font-bold text-emerald-700">€420.00</span></div>
+            <div class="flex justify-between py-1 border-b border-gray-50"><span class="text-gray-500">Assignment Status:</span><span id="party-driver-status" class="font-bold uppercase text-blue-700">IN PROGRESS</span></div>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-xl border border-gray-200 p-6 shadow-xs space-y-4">
+          <div class="flex items-center space-x-3 border-b border-gray-100 pb-3">
+            <div class="w-10 h-10 rounded-full bg-blue-100 text-blue-800 flex items-center justify-center font-black text-sm">
+              <i data-lucide="building" class="w-5 h-5"></i>
+            </div>
+            <div>
+              <h3 id="party-cust-name" class="text-sm font-extrabold text-gray-900">Autohaus Nord GmbH</h3>
+              <span class="text-xs text-gray-500">Contracting Dealer Customer</span>
+            </div>
+          </div>
+          <div class="space-y-2 text-xs">
+            <div class="flex justify-between py-1 border-b border-gray-50"><span class="text-gray-500">Customer ID:</span><span id="party-cust-id" class="font-mono font-bold text-gray-800">cus-023</span></div>
+            <div class="flex justify-between py-1 border-b border-gray-50"><span class="text-gray-500">Account Tier:</span><span id="party-cust-tier" class="font-bold text-purple-700">VIP Premium Partner</span></div>
+            <div class="flex justify-between py-1 border-b border-gray-50"><span class="text-gray-500">Country:</span><span id="party-cust-country" class="text-gray-800">Germany</span></div>
+            <div class="flex justify-between py-1 border-b border-gray-50"><span class="text-gray-500">Internal Reference:</span><span id="party-cust-ref" class="font-mono text-gray-800">PO-99412</span></div>
+          </div>
+        </div>
+
+        <div class="col-span-2 bg-white rounded-xl border border-gray-200 p-6 shadow-xs space-y-4">
+          <h4 class="text-xs font-bold uppercase text-gray-700">Site Endpoint Locations & Access Instructions</h4>
+          <div class="grid grid-cols-2 gap-4 text-xs">
+            <div class="p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-1">
+              <span class="text-gray-400 text-[10px] uppercase font-bold">Origin / Pickup Site:</span>
+              <p id="site-pickup-address" class="font-bold text-gray-900">Autohaus Munich Süd, Hauptstraße 42</p>
+              <p id="site-pickup-notes" class="text-gray-600 text-[11px]">Gate clearance: Present release PDF at service desk.</p>
+            </div>
+            <div class="p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-1">
+              <span class="text-gray-400 text-[10px] uppercase font-bold">Destination / Delivery Site:</span>
+              <p id="site-delivery-address" class="font-bold text-gray-900">K-Auto Espoo, Piispankyläntie 12</p>
+              <p id="site-delivery-notes" class="text-gray-600 text-[11px]">After hours: Key locker code available.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ================= VIEW 3: SUPPORT INBOX ================= -->
+  <div id="view-inbox" class="hidden flex-1 flex flex-col overflow-hidden bg-white">
+    <div class="bg-white border-b border-gray-200 px-8 py-4 flex items-center justify-between shrink-0 shadow-xs">
+      <div>
+        <h2 class="text-lg font-black text-gray-900 flex items-center space-x-2">
+          <i data-lucide="inbox" class="w-5 h-5 text-amber-500"></i>
+          <span>Support Inbox</span>
+        </h2>
+        <p class="text-xs text-gray-500 mt-0.5">Customer and driver inquiries requiring order linking and response</p>
+      </div>
+      <div class="flex items-center space-x-2 text-xs">
+        <span class="px-3 py-1 rounded-full bg-amber-100 text-amber-900 font-bold">5 Total Threads</span>
+        <span class="px-3 py-1 rounded-full bg-rose-100 text-rose-800 font-bold">4 Open Unresolved</span>
+      </div>
+    </div>
+
+    <div class="flex-1 overflow-y-auto custom-scrollbar p-8">
+      <div id="support-inbox-threads-list" class="space-y-4 max-w-5xl mx-auto">
+        <!-- Support inbox threads populated dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= VIEW 4: OPERATIONS AUDIT LOG ================= -->
+  <div id="view-history" class="hidden flex-1 flex flex-col overflow-hidden bg-white">
+    <div class="bg-white border-b border-gray-200 px-8 py-4 flex items-center justify-between shrink-0 shadow-xs">
+      <div>
+        <h2 class="text-lg font-black text-gray-900 flex items-center space-x-2">
+          <i data-lucide="history" class="w-5 h-5 text-amber-500"></i>
+          <span>Operations Audit Feed</span>
+        </h2>
+        <p class="text-xs text-gray-500 mt-0.5">Chronological record of operational events and operator decisions</p>
+      </div>
+      <div class="flex items-center space-x-2">
+        <button onclick="exportAuditLog()" class="px-3 py-1.5 text-xs font-bold bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg transition flex items-center space-x-1.5">
+          <i data-lucide="download" class="w-3.5 h-3.5"></i>
+          <span>Export Audit (JSON)</span>
+        </button>
+        <button onclick="clearAuditLog()" class="px-3 py-1.5 text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg transition flex items-center space-x-1.5">
+          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+          <span>Reset History</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="flex-1 overflow-y-auto custom-scrollbar p-8">
+      <div class="border border-gray-200 rounded-xl overflow-hidden shadow-xs bg-white">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead class="bg-gray-50 border-b border-gray-200 text-gray-500 font-bold uppercase tracking-wider text-[11px] sticky top-0 z-10">
+            <tr>
+              <th class="p-3">Timestamp (UTC)</th>
+              <th class="p-3">Operator / Source</th>
+              <th class="p-3">Order Ref</th>
+              <th class="p-3">Vehicle</th>
+              <th class="p-3">Action</th>
+              <th class="p-3">Operational Event & Decision</th>
+            </tr>
+          </thead>
+          <tbody id="global-history-tbody" class="divide-y divide-gray-100"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= VIEW 5: FINANCIALS & EARNINGS ================= -->
+  <div id="view-finance" class="hidden flex-1 flex flex-col overflow-hidden bg-white">
+    <div class="bg-white border-b border-gray-200 px-8 py-4 shrink-0 shadow-xs">
+      <h2 class="text-lg font-black text-gray-900 flex items-center space-x-2">
+        <i data-lucide="coins" class="w-5 h-5 text-amber-500"></i>
+        <span>Financials & Earnings</span>
+      </h2>
+      <p class="text-xs text-gray-500 mt-0.5">Revenue ledger, active driver payouts, and trip expense reimbursement</p>
+    </div>
+
+    <div class="flex-1 overflow-y-auto custom-scrollbar p-8 space-y-6 max-w-6xl w-full mx-auto">
+      <!-- 4 KPI CARDS -->
+      <div class="grid grid-cols-4 gap-4">
+        <div class="bg-white border border-gray-200 rounded-xl p-4 shadow-xs">
+          <span class="text-[11px] font-bold uppercase text-gray-400">Total Delivery Revenue</span>
+          <div id="fin-gross-rev" class="text-xl font-extrabold text-gray-900 mt-1">€0</div>
+          <span class="text-[10px] text-gray-500">Gross customer billings</span>
+        </div>
+        <div class="bg-white border border-gray-200 rounded-xl p-4 shadow-xs">
+          <span class="text-[11px] font-bold uppercase text-gray-400">Driver Fees (Payouts)</span>
+          <div id="fin-driver-payouts" class="text-xl font-extrabold text-blue-700 mt-1">€0</div>
+          <span class="text-[10px] text-blue-600 font-semibold">Active contractor fees</span>
+        </div>
+        <div class="bg-white border border-gray-200 rounded-xl p-4 shadow-xs">
+          <span class="text-[11px] font-bold uppercase text-gray-400">Trip Expenses & Fuel</span>
+          <div id="fin-trip-expenses" class="text-xl font-extrabold text-rose-700 mt-1">€0</div>
+          <span class="text-[10px] text-rose-600 font-semibold">Includes EUR + DKK claims</span>
+        </div>
+        <div class="bg-white border border-emerald-300 bg-emerald-50/50 rounded-xl p-4 shadow-xs">
+          <span class="text-[11px] font-bold uppercase text-emerald-800">Net Operating Profit</span>
+          <div id="fin-net-profit" class="text-xl font-black text-emerald-800 mt-1">€0</div>
+          <span id="fin-margin-pct" class="text-[10px] text-emerald-700 font-bold">0% Margin</span>
+        </div>
+      </div>
+
+      <!-- EXPENSES TABLE WITH PROOF ATTACHMENTS -->
+      <div class="bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden">
+        <div class="p-4 border-b border-gray-200 flex items-center justify-between bg-gray-50/50">
+          <h3 class="text-xs font-extrabold uppercase text-gray-800">Itemized Driver Expense Claims</h3>
+          <div class="flex items-center space-x-2 text-xs">
+            <select id="fin-cat-filter" onchange="loadFinancials()" class="border border-gray-300 rounded px-2 py-1 bg-white">
+              <option value="all">All Categories</option>
+              <option value="fuel">Fuel</option>
+              <option value="hotel">Hotel</option>
+              <option value="parking">Parking</option>
+              <option value="ferry">Ferry</option>
+            </select>
+            <select id="fin-status-filter" onchange="loadFinancials()" class="border border-gray-300 rounded px-2 py-1 bg-white">
+              <option value="all">All Statuses</option>
+              <option value="approved">Approved</option>
+              <option value="submitted">Submitted (Review Needed)</option>
+            </select>
+          </div>
+        </div>
+
+        <table class="w-full text-left border-collapse text-xs">
+          <thead class="bg-gray-50 border-b border-gray-200 text-gray-500 font-bold uppercase tracking-wider text-[11px]">
+            <tr>
+              <th class="p-3">Date</th>
+              <th class="p-3">Category</th>
+              <th class="p-3">Merchant / Service</th>
+              <th class="p-3">Order Ref</th>
+              <th class="p-3">Amount</th>
+              <th class="p-3">Status</th>
+              <th class="p-3 text-right">Proof</th>
+            </tr>
+          </thead>
+          <tbody id="fin-expenses-tbody" class="divide-y divide-gray-100"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= SLIDE-OVER AI COPILOT SIDEBAR ================= -->
+  <div id="ai-sidebar" class="fixed top-0 right-0 h-full w-[440px] bg-white shadow-2xl border-l border-gray-200 z-50 flex flex-col transform translate-x-full transition-transform duration-300 ease-in-out">
+    <!-- Header -->
+    <div class="p-4 bg-[#121417] text-white flex items-center justify-between border-b border-gray-800 shrink-0">
+      <div class="flex items-center space-x-2.5">
+        <div class="w-8 h-8 rounded-lg bg-purple-600 flex items-center justify-center text-white">
+          <i data-lucide="bot" class="w-4 h-4"></i>
+        </div>
+        <div>
+          <h3 class="text-sm font-bold text-white leading-tight">AI Operations Assistant</h3>
+          <span class="text-[10px] text-purple-300 font-medium">Multi-Model Operations Intelligence</span>
+        </div>
+      </div>
+      <button onclick="toggleAiSidebar()" class="text-gray-400 hover:text-white p-1 rounded-lg transition">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+    </div>
+
+    <!-- Controls Bar: Model & Scope Selector -->
+    <div class="p-3 bg-gray-50 border-b border-gray-200 space-y-2.5 shrink-0 text-xs">
+      <!-- AI Model Picker -->
+      <div class="flex items-center justify-between">
+        <span class="text-gray-500 font-bold uppercase text-[10px]">AI Engine:</span>
+        <select id="ai-model-select" class="border border-gray-300 rounded px-2.5 py-1 bg-white text-gray-800 font-semibold focus:outline-none focus:border-purple-600">
+          <option value="openai/gpt-4o-mini">OpenAI GPT-4o Mini (Default)</option>
+          <option value="google/gemini-2.5-flash">Google Gemini 2.5 Flash</option>
+          <option value="deepseek/deepseek-chat">DeepSeek V3</option>
+          <option value="anthropic/claude-sonnet-5.5">Anthropic Claude Sonnet</option>
+        </select>
+      </div>
+
+      <!-- Scope Switcher -->
+      <div class="flex bg-gray-200 p-0.5 rounded-lg text-xs font-bold">
+        <button id="ai-scope-fleet" onclick="setAiScope('fleet')" class="flex-1 py-1 rounded-md bg-white text-black shadow-xs font-bold transition">
+          Fleet Overview
+        </button>
+        <button id="ai-scope-car" onclick="setAiScope('car')" class="flex-1 py-1 rounded-md text-gray-600 hover:text-black transition">
+          Car Focus
+        </button>
+      </div>
+
+      <!-- Active Car Context Card (Shown in car focus) -->
+      <div id="ai-car-context-card" class="hidden p-2.5 bg-purple-50 border border-purple-200 rounded-lg space-y-1">
+        <div class="flex items-center justify-between">
+          <span id="ai-context-ref" class="font-mono font-bold text-purple-900 text-xs">CD-420322</span>
+          <span id="ai-context-status" class="text-[10px] bg-purple-200 text-purple-900 px-1.5 py-0.5 rounded font-bold uppercase">MOVING</span>
+        </div>
+        <p id="ai-context-title" class="text-xs font-bold text-gray-900 truncate">2022 Bentley Continental GT</p>
+        <p id="ai-context-issue" class="text-[11px] text-purple-800 line-clamp-2 leading-tight">Red dashboard warning; driver halted safely</p>
+        
+        <!-- Run Auto-Solver Button inside Sidebar -->
+        <button id="btn-sidebar-run-agent" onclick="runSentinelAgent()" class="mt-2 w-full py-1.5 bg-purple-700 hover:bg-purple-800 text-white rounded font-bold text-xs flex items-center justify-center space-x-1.5 shadow-xs transition">
+          <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+          <span>Run Autonomous Resolution Agent</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Chat Messages Stream -->
+    <div id="ai-chat-stream" class="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-3 bg-[#F8F9FA] text-xs">
+      <div class="p-3 bg-white rounded-lg border border-gray-200 text-gray-700 leading-relaxed shadow-xs">
+        <strong class="text-purple-900 block font-bold mb-1">AI Operations Assistant Ready</strong>
+        I am connected to all 100 delivery records, driver telemetries, and legal documents. Select Fleet Overview to query global stats, or Car Focus to resolve a specific car.
+      </div>
+    </div>
+
+    <!-- Policy Warning Notice -->
+    <div class="px-3.5 py-2 bg-amber-50 border-t border-amber-200 text-[10px] text-amber-900 flex items-center space-x-2 shrink-0">
+      <i data-lucide="shield-alert" class="w-4 h-4 text-amber-700 shrink-0"></i>
+      <span>Policy: Autonomous bots cannot message customers directly. Human operator authorization required.</span>
+    </div>
+
+    <!-- Input Form -->
+    <form onsubmit="handleAiSidebarSubmit(event)" class="p-3 bg-white border-t border-gray-200 flex items-center space-x-2 shrink-0">
+      <input type="text" id="ai-sidebar-input" placeholder="Ask AI Assistant or instruct dispatch..." class="flex-1 text-xs border border-gray-300 rounded-lg px-3 py-2.5 bg-gray-50 focus:bg-white focus:outline-none focus:border-purple-600">
+      <button type="submit" class="bg-purple-700 hover:bg-purple-800 text-white px-3.5 py-2.5 rounded-lg text-xs font-bold transition flex items-center space-x-1">
+        <span>Send</span>
+        <i data-lucide="corner-down-left" class="w-3 h-3"></i>
+      </button>
+    </form>
+  </div>
+
+  <!-- FLOATING SIDEBAR TOGGLE BUTTON -->
+  <button id="btn-open-ai-sidebar" onclick="toggleAiSidebar()" class="fixed bottom-6 right-6 z-40 bg-gray-900 hover:bg-black text-white px-4 py-3 rounded-full shadow-xl border border-gray-700 flex items-center space-x-2 text-xs font-bold cursor-pointer hover:scale-105 transition-all">
+    <div class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></div>
+    <i data-lucide="bot" class="w-4 h-4 text-purple-400"></i>
+    <span>AI Assistant</span>
+  </button>
+
+  <!-- INFO & SYSTEM STATUS MODAL -->
+  <div id="info-modal" class="hidden fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl border border-gray-200 space-y-4">
+      <div class="flex items-center justify-between border-b border-gray-100 pb-3">
+        <h3 class="text-sm font-bold text-gray-900 flex items-center space-x-2">
+          <i data-lucide="info" class="w-4 h-4 text-amber-500"></i>
+          <span>System Information & AI Engine</span>
+        </h3>
+        <button onclick="toggleInfoModal()" class="text-gray-400 hover:text-black">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <div class="space-y-2 text-xs">
+        <div class="flex justify-between py-1.5 border-b border-gray-50">
+          <span class="text-gray-500">OpenRouter API:</span>
+          <span id="info-api-status" class="font-bold text-emerald-700 flex items-center space-x-1">
+            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+            <span>Connected</span>
+          </span>
+        </div>
+        <div class="flex justify-between py-1.5 border-b border-gray-50">
+          <span class="text-gray-500">Available Credits:</span>
+          <span id="info-credits" class="font-mono font-bold text-gray-900">$19.99 USD</span>
+        </div>
+        <div class="flex justify-between py-1.5 border-b border-gray-50">
+          <span class="text-gray-500">Supported AI Models:</span>
+          <span class="font-medium text-gray-800">GPT-4o Mini, Gemini 2.5, DeepSeek V3, Claude Sonnet</span>
+        </div>
+        <div class="flex justify-between py-1.5 border-b border-gray-50">
+          <span class="text-gray-500">Dataset Coverage:</span>
+          <span class="font-medium text-gray-800">100 Orders, 37 Collections, 58 Attachments</span>
+        </div>
+        <div class="flex justify-between py-1.5 border-b border-gray-50">
+          <span class="text-gray-500">Routing Engine:</span>
+          <span class="font-medium text-gray-800">OSRM Trans-European Highways</span>
+        </div>
+      </div>
+
+      <div class="pt-2">
+        <button onclick="toggleInfoModal()" class="w-full py-2 bg-gray-900 text-white rounded-lg text-xs font-bold hover:bg-black transition">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- OPERATOR SIGNATURE MODAL -->
+  <div id="operator-modal" class="hidden fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl max-w-sm w-full p-6 shadow-2xl border border-gray-200 space-y-4">
+      <h3 class="text-sm font-bold text-gray-900 flex items-center space-x-2">
+        <i data-lucide="shield" class="w-4 h-4 text-amber-500"></i>
+        <span>Change Operator ID</span>
+      </h3>
+      <p class="text-xs text-gray-500">Decisions, approvals, and driver instructions will be stamped with this ID in the audit log.</p>
+      <div>
+        <label class="block text-gray-400 uppercase text-[10px] font-bold mb-1">Operator Call-Sign</label>
+        <input type="text" id="operator-input" class="w-full text-xs border border-gray-300 rounded px-3 py-2 font-mono font-bold uppercase focus:outline-none focus:border-amber-500" value="OP-042">
+      </div>
+      <div class="flex justify-end space-x-2 pt-2">
+        <button onclick="closeOperatorModal()" class="px-3 py-1.5 text-xs text-gray-600 hover:text-black">Cancel</button>
+        <button onclick="saveOperatorId()" class="px-4 py-1.5 bg-amber-500 text-black font-bold rounded text-xs hover:bg-amber-400">Save Call-Sign</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PHOTO / DOCUMENT PREVIEW MODAL -->
+  <div id="photo-modal" class="hidden fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4">
+    <div class="w-full max-w-4xl flex justify-between items-center text-white pb-3">
+      <span id="photo-modal-caption" class="font-bold text-sm">Inspection Proof</span>
+      <button onclick="closePhotoModal()" class="text-gray-400 hover:text-white p-1 rounded-lg">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+    </div>
+    <div class="max-w-4xl max-h-[80vh] overflow-hidden rounded-lg bg-black flex items-center justify-center border border-gray-800">
+      <img id="photo-modal-img" src="" alt="Proof" class="max-w-full max-h-[75vh] object-contain">
+    </div>
+  </div>
+
+  <!-- APPLICATION JAVASCRIPT -->
+  <script>
+    // State variables
+    let ordersList = [];
+    let selectedOrderId = null;
+    let selectedOrderData = null;
+    let currentGlobalView = 'home';
+    let currentDossierTab = 'triage';
+    let currentStatusFilter = 'all'; // Starts with All Cars by default per user request
+    let currentProblemFilter = 'all';
+    let currentSort = 'newest';
+    let searchQuery = '';
+    let activeOperator = localStorage.getItem('bahn_operator_id') || 'OP-042';
+    let leafletMap = null;
+    let mapMarkers = [];
+    let mapRouteLine = [];
+    let globalAuditCache = [];
+    let isAiSidebarOpen = false;
+    let currentAiScope = 'fleet';
+
+    // 5-second undo timer state
+    let pendingActionTimer = null;
+    let pendingActionCountdown = 5;
+    let pendingActionData = null;
+
+    async function init() {
+      document.getElementById('operator-display').innerText = activeOperator;
+      document.getElementById('decision-operator-label').innerText = activeOperator;
+      await fetchCredits();
+      await refreshData();
+      lucide.createIcons();
+    }
+
+    function showToast(message, type = 'success') {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      let bg = 'bg-emerald-800 text-white';
+      let icon = 'check-circle';
+      if (type === 'error') {
+        bg = 'bg-rose-800 text-white';
+        icon = 'alert-circle';
+      } else if (type === 'info') {
+        bg = 'bg-gray-800 text-white';
+        icon = 'info';
+      }
+      toast.className = `toast-msg ${bg}`;
+      toast.innerHTML = `
+        <i data-lucide="${icon}" class="w-4 h-4"></i>
+        <span>${message}</span>
+      `;
+      container.appendChild(toast);
+      lucide.createIcons();
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(10px)';
+        setTimeout(() => toast.remove(), 300);
+      }, 3500);
+    }
+
+    async function fetchCredits() {
+      try {
+        const res = await fetch('/api/agent/credits');
+        const data = await res.json();
+        if (data.connected) {
+          document.getElementById('info-credits').innerText = `$${data.remaining_usd.toFixed(2)} USD`;
+        }
+      } catch (e) {
+        console.error('Error fetching credits:', e);
+      }
+    }
+
+    function toggleInfoModal() {
+      const modal = document.getElementById('info-modal');
+      modal.classList.toggle('hidden');
+    }
+
+    function goToFleetView() {
+      if (selectedOrderId) {
+        switchGlobalView('detail');
+      } else {
+        switchGlobalView('home');
+      }
+    }
+
+    function goBackToFleetTable() {
+      selectedOrderId = null;
+      document.getElementById('nav-fleet-label').innerText = 'Fleet Overview';
+      switchGlobalView('home');
+    }
+
+    function switchGlobalView(view) {
+      currentGlobalView = view;
+      const vHome = document.getElementById('view-home');
+      const vDetail = document.getElementById('view-car-detail');
+      const vInbox = document.getElementById('view-inbox');
+      const vHist = document.getElementById('view-history');
+      const vFin = document.getElementById('view-finance');
+
+      const btnFleet = document.getElementById('nav-btn-fleet');
+      const btnInbox = document.getElementById('nav-btn-inbox');
+      const btnHist = document.getElementById('nav-btn-history');
+      const btnFin = document.getElementById('nav-btn-finance');
+
+      const activeClass = 'px-3 py-1.5 rounded-md font-semibold bg-amber-500 text-black flex items-center space-x-1.5 transition';
+      const inactiveClass = 'px-3 py-1.5 rounded-md font-medium text-gray-300 hover:text-white flex items-center space-x-1.5 transition';
+
+      btnFleet.className = (view === 'home' || view === 'detail') ? activeClass : inactiveClass;
+      btnInbox.className = view === 'inbox' ? activeClass : inactiveClass;
+      btnHist.className = view === 'history' ? activeClass : inactiveClass;
+      btnFin.className = view === 'finance' ? activeClass : inactiveClass;
+
+      vHome.classList.toggle('hidden', view !== 'home');
+      vDetail.classList.toggle('hidden', view !== 'detail');
+      vInbox.classList.toggle('hidden', view !== 'inbox');
+      vHist.classList.toggle('hidden', view !== 'history');
+      vFin.classList.toggle('hidden', view !== 'finance');
+
+      if (view === 'inbox') loadSupportInbox();
+      if (view === 'history') loadGlobalHistory();
+      if (view === 'finance') loadFinancials();
+      lucide.createIcons();
+    }
+
+    async function refreshData() {
+      try {
+        const statsRes = await fetch('/api/stats');
+        const stats = await statsRes.json();
+        
+        document.getElementById('count-all').innerText = stats.total_orders;
+        document.getElementById('count-ok').innerText = stats.on_track_count;
+        document.getElementById('count-not-ok').innerText = stats.needs_human_count;
+        document.getElementById('nav-inbox-badge').innerText = stats.open_inbox_count;
+
+        await loadFleetOrders();
+      } catch (e) {
+        console.error('Error refreshing data:', e);
+      }
+    }
+
+    function setStatusFilter(status) {
+      currentStatusFilter = status;
+      
+      const btnAll = document.getElementById('btn-status-all');
+      const btnOk = document.getElementById('btn-status-ok');
+      const btnNotOk = document.getElementById('btn-status-not-ok');
+
+      btnAll.className = status === 'all' ? 'px-3.5 py-1.5 rounded-md bg-white text-black font-bold shadow-xs' : 'px-3.5 py-1.5 rounded-md text-gray-600 hover:text-black transition';
+      btnOk.className = status === 'ok' ? 'px-3.5 py-1.5 rounded-md bg-emerald-600 text-white font-bold shadow-xs flex items-center space-x-1' : 'px-3.5 py-1.5 rounded-md text-emerald-800 hover:bg-white transition flex items-center space-x-1';
+      btnNotOk.className = status === 'not_ok' ? 'px-3.5 py-1.5 rounded-md bg-rose-600 text-white font-bold shadow-xs flex items-center space-x-1.5' : 'px-3.5 py-1.5 rounded-md text-rose-700 hover:bg-white transition flex items-center space-x-1.5';
+
+      loadFleetOrders();
+    }
+
+    function onProblemSelectChange() {
+      currentProblemFilter = document.getElementById('problem-select').value;
+      loadFleetOrders();
+    }
+
+    function onSortChange() {
+      currentSort = document.getElementById('sort-select').value;
+      loadFleetOrders();
+    }
+
+    function onSearchInput() {
+      searchQuery = document.getElementById('fleet-search').value;
+      loadFleetOrders();
+    }
+
+    async function loadFleetOrders() {
+      const tbody = document.getElementById('fleet-table-tbody');
+      try {
+        const res = await fetch(`/api/orders?status_filter=${currentStatusFilter}&problem_category=${currentProblemFilter}&sort_by=${currentSort}&query=${encodeURIComponent(searchQuery)}`);
+        ordersList = await res.json();
+
+        if (ordersList.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-gray-400">No cars found matching filters</td></tr>`;
+          return;
+        }
+
+        let html = '';
+        ordersList.forEach(o => {
+          const v = o.vehicle;
+          const drv = o.driver;
+          const att = o.attention;
+          
+          let conditionHtml = '';
+          if (att.severity === 'danger') {
+            conditionHtml = `
+              <span class="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                <span class="w-2 h-2 rounded-full bg-rose-600 pulse-urgent"></span>
+                <span>${att.headline}</span>
+              </span>
+            `;
+          } else if (att.severity === 'warning') {
+            conditionHtml = `
+              <span class="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+                <span>${att.headline}</span>
+              </span>
+            `;
+          } else {
+            conditionHtml = `
+              <span class="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                <span>On Track • Auto Monitored</span>
+              </span>
+            `;
+          }
+
+          html += `
+            <tr onclick="openCarDetail('${o.id}')" class="hover:bg-amber-50/50 cursor-pointer transition">
+              <td class="p-3.5 pl-4 font-mono font-bold text-gray-900">${o.reference}</td>
+              <td class="p-3.5">
+                <div class="flex items-center space-x-3">
+                  <div class="w-10 h-7 rounded bg-gray-100 border border-gray-200 overflow-hidden shrink-0 flex items-center justify-center">
+                    <img src="${v && v.image_url ? v.image_url : '/static/bahn-logo.png'}" alt="Car" class="w-full h-full object-cover">
+                  </div>
+                  <div>
+                    <strong class="text-gray-900 block font-bold">${v ? `${v.make} ${v.model}` : 'Unassigned Car'}</strong>
+                    <span class="text-[11px] text-gray-500 font-mono">${v ? v.registration : 'No Plate'}</span>
+                  </div>
+                </div>
+              </td>
+              <td class="p-3.5 font-medium text-gray-700">${o.route_text}</td>
+              <td class="p-3.5">
+                <span class="text-gray-900 font-semibold text-[11px]">${o.current_location}</span>
+              </td>
+              <td class="p-3.5">
+                <span class="text-gray-800 font-medium">${drv ? drv.display_name : '<span class="text-gray-400 italic">Unassigned</span>'}</span>
+              </td>
+              <td class="p-3.5 max-w-xs">${conditionHtml}</td>
+              <td class="p-3.5 pr-4 text-right">
+                <button onclick="event.stopPropagation(); openCarDetail('${o.id}')" class="px-3 py-1.5 rounded-lg bg-gray-900 hover:bg-black text-white font-bold text-xs transition">
+                  Open Dossier →
+                </button>
+              </td>
+            </tr>
+          `;
+        });
+
+        tbody.innerHTML = html;
+        lucide.createIcons();
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-rose-500">Error loading fleet data</td></tr>`;
+      }
+    }
+
+    // ================= CAR DETAIL DOSSIER =================
+    async function openCarDetail(orderId) {
+      selectedOrderId = orderId;
+      document.getElementById('nav-fleet-label').innerText = `Car: ${orderId}`;
+      switchGlobalView('detail');
+
+      const res = await fetch(`/api/orders/${orderId}`);
+      selectedOrderData = await res.json();
+      const data = selectedOrderData;
+
+      const o = data.order;
+      const v = data.vehicle;
+      const cust = data.customer;
+      const drv = data.driver;
+      const att = data.attention;
+      const addr = data.addresses;
+
+      // Nav breadcrumb
+      document.getElementById('detail-nav-id').innerText = o.reference;
+      document.getElementById('detail-nav-car').innerText = v ? `${v.make} ${v.model}` : 'Car Detail';
+
+      // Header Banner
+      document.getElementById('detail-ref').innerText = o.reference;
+      document.getElementById('detail-lane').innerText = o.display_lane || o.status;
+      document.getElementById('detail-car-title').innerText = v ? `${v.model_year} ${v.make} ${v.model}` : 'Unassigned Car';
+      document.getElementById('detail-plate').innerText = v ? v.registration : 'Pending';
+      document.getElementById('detail-customer-name').innerText = cust ? cust.name : 'Dealer';
+      document.getElementById('detail-driver-name').innerText = drv ? drv.display_name : 'Unassigned';
+      document.getElementById('detail-status').innerText = o.status;
+      document.getElementById('detail-route-summary').innerText = `${addr.coordinates.pickup_city} → ${addr.coordinates.delivery_city}`;
+
+      // Pipeline stepper
+      renderPipelineStepper(o.status, o.display_lane);
+
+      // Vehicle photo
+      const carImg = document.getElementById('detail-car-image');
+      carImg.src = (v && v.image_url) ? v.image_url : '/static/bahn-logo.png';
+
+      // Condition badge
+      const cBadge = document.getElementById('detail-condition-badge');
+      if (att.needs_human) {
+        cBadge.innerText = att.headline;
+        cBadge.className = 'text-xs font-bold px-2.5 py-0.5 rounded bg-rose-100 text-rose-800 border border-rose-300';
+      } else {
+        cBadge.innerText = 'OK • Autopilot Active';
+        cBadge.className = 'text-xs font-bold px-2.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300';
+      }
+
+      // Alert Banner
+      const alertBox = document.getElementById('detail-alert-box');
+      if (att.needs_human) {
+        alertBox.classList.remove('hidden');
+        document.getElementById('detail-alert-title').innerText = 'Attention Required';
+        document.getElementById('detail-alert-desc').innerText = att.headline;
+      } else {
+        alertBox.classList.add('hidden');
+      }
+
+      // Recommended Operator Actions
+      const decContainer = document.getElementById('dynamic-decision-container');
+      let decHtml = '';
+      if (data.decisions && data.decisions.length > 0) {
+        data.decisions.forEach(d => {
+          decHtml += `
+            <div class="p-3 bg-white rounded-lg border border-amber-200 shadow-xs flex flex-col justify-between">
+              <div>
+                <strong class="text-xs text-gray-900 block">${d.label}</strong>
+                <p class="text-[11px] text-gray-500 mt-1 leading-snug">${d.description}</p>
+              </div>
+              <button onclick="requestActionWithUndo('${d.id}', '${escapeAttr(d.note)}', '${escapeAttr(d.label)}')" class="mt-3 w-full py-2 px-3 rounded text-xs font-bold transition shadow-xs ${d.btn_class}">
+                Confirm Action
+              </button>
+            </div>
+          `;
+        });
+      }
+      decContainer.innerHTML = decHtml;
+
+      // Status checks list
+      const checklistContainer = document.getElementById('detail-checklist');
+      let checklistHtml = '';
+      att.what_was_checked.forEach(item => {
+        checklistHtml += `
+          <div class="flex items-start space-x-2 bg-gray-50 p-2.5 rounded border border-gray-100">
+            <i data-lucide="check" class="w-4 h-4 text-emerald-600 shrink-0 mt-0.5"></i>
+            <span class="text-gray-700 leading-tight">${item}</span>
+          </div>
+        `;
+      });
+      checklistContainer.innerHTML = checklistHtml;
+
+      // Conditional Ferry Tab Visibility
+      const hasFerry = addr.coordinates.has_ferry || (data.travel_reservations && data.travel_reservations.length > 0) || (data.travel_options && data.travel_options.length > 0);
+      const travelTabBtn = document.getElementById('tab-btn-travel');
+      if (hasFerry) {
+        travelTabBtn.classList.remove('hidden');
+        populateTravel(data);
+      } else {
+        travelTabBtn.classList.add('hidden');
+        if (currentDossierTab === 'travel') switchDossierTab('triage');
+      }
+
+      // Populate other tabs
+      populateGallery(data);
+      populateWhatsApp(data);
+      renderMapAndWaypoints(addr.coordinates);
+
+      // Parties
+      document.getElementById('party-driver-name').innerText = drv ? drv.display_name : 'No Driver Assigned';
+      document.getElementById('party-driver-id').innerText = drv ? drv.id : 'N/A';
+      document.getElementById('party-driver-city').innerText = drv ? `${drv.home_city}, ${drv.home_country}` : 'N/A';
+      document.getElementById('party-driver-fee').innerText = drv ? `€${drv.fee_eur}` : 'N/A';
+      document.getElementById('party-driver-status').innerText = drv ? (drv.assignment_status || 'ASSIGNED') : 'UNASSIGNED';
+
+      document.getElementById('party-cust-name').innerText = cust ? cust.name : 'Unknown Dealer';
+      document.getElementById('party-cust-id').innerText = cust ? cust.id : 'N/A';
+      document.getElementById('party-cust-tier').innerText = cust ? cust.account_tier : 'Standard';
+      document.getElementById('party-cust-country').innerText = cust ? cust.country : 'FI';
+      document.getElementById('party-cust-ref').innerText = o.customer_reference || 'N/A';
+
+      const pAddr = addr.pickup;
+      const dAddr = addr.delivery;
+      const pSite = addr.pickup_site;
+      const dSite = addr.delivery_site;
+
+      document.getElementById('site-pickup-address').innerText = pAddr ? `${pAddr.name || ''} - ${pAddr.raw_input || pAddr.address_line1}, ${pAddr.city}` : 'Not specified';
+      document.getElementById('site-pickup-notes').innerText = pSite && pSite.access_note ? `Note: ${pSite.access_note}` : 'No special pickup access note';
+
+      document.getElementById('site-delivery-address').innerText = dAddr ? `${dAddr.name || ''} - ${dAddr.raw_input || dAddr.address_line1}, ${dAddr.city}` : 'Not specified';
+      document.getElementById('site-delivery-notes').innerText = dSite && dSite.delivery_access_note ? `Note: ${dSite.delivery_access_note}` : 'Standard delivery handover';
+
+      // Update AI Sidebar car context
+      updateAiSidebarContext(o, v, att);
+
+      switchDossierTab(currentDossierTab === 'travel' && !hasFerry ? 'triage' : currentDossierTab);
+      lucide.createIcons();
+    }
+
+    function renderPipelineStepper(status, displayLane) {
+      const steps = [
+        { key: 'intake', label: '1. Order Intake', sub: 'Plan & Readiness' },
+        { key: 'assigned', label: '2. Driver Assigned', sub: 'Gig Confirmed' },
+        { key: 'pickup', label: '3. Waiting Pickup', sub: 'Dealership Site' },
+        { key: 'transit', label: '4. Corridor Transit', sub: 'Highway Movement' },
+        { key: 'delivered', label: '5. Handover Done', sub: 'Signed & Released' }
+      ];
+
+      let activeIdx = 0;
+      const s = (status || '').toUpperCase();
+      const lane = (displayLane || '').toLowerCase();
+
+      if (lane === 'cancelled' || s === 'CANCELLED') {
+        activeIdx = -1;
+      } else if (s === 'DELIVERED' || lane === 'delivered') {
+        activeIdx = 4;
+      } else if (s === 'IN_TRANSIT' || lane === 'moving') {
+        activeIdx = 3;
+      } else if (s === 'WAITING_FOR_PICKUP') {
+        activeIdx = 2;
+      } else if (lane === 'booked' || lane === 'market') {
+        activeIdx = 1;
+      } else {
+        activeIdx = 0;
+      }
+
+      document.getElementById('pipeline-current-status').innerText = `STATUS: ${s}`;
+
+      const container = document.getElementById('pipeline-stepper');
+      let html = '';
+      if (activeIdx === -1) {
+        html = `
+          <div class="col-span-5 bg-rose-50 border border-rose-200 p-3 rounded-lg text-rose-800 flex items-center justify-between">
+            <div class="flex items-center space-x-2">
+              <i data-lucide="x-circle" class="w-4 h-4 text-rose-600"></i>
+              <strong class="font-bold">Delivery Cancelled</strong> - Transport cancelled prior to handover.
+            </div>
+            <span class="font-mono font-bold text-[11px] bg-rose-200 px-2 py-0.5 rounded text-rose-900">ORDER CANCELLED</span>
+          </div>
+        `;
+      } else {
+        steps.forEach((st, idx) => {
+          const isDone = idx < activeIdx;
+          const isCurrent = idx === activeIdx;
+
+          let badgeClass = 'bg-gray-50 border-gray-200 text-gray-500';
+          let iconHtml = `<span class="w-4 h-4 rounded-full bg-gray-200 text-gray-600 font-bold flex items-center justify-center text-[10px]">${idx + 1}</span>`;
+
+          if (isDone) {
+            badgeClass = 'bg-emerald-50/80 border-emerald-200 text-emerald-900';
+            iconHtml = `<i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-600"></i>`;
+          } else if (isCurrent) {
+            badgeClass = 'bg-amber-400 text-black border-amber-500 font-bold shadow-xs';
+            iconHtml = `<span class="w-4 h-4 rounded-full bg-black text-amber-400 font-extrabold flex items-center justify-center text-[10px]">${idx + 1}</span>`;
+          }
+
+          html += `
+            <div class="p-2.5 rounded-lg border flex flex-col justify-between ${badgeClass}">
+              <div class="flex items-center space-x-1.5 mb-1">
+                ${iconHtml}
+                <strong class="font-bold text-[11px] block truncate">${st.label}</strong>
+              </div>
+              <span class="text-[10px] ${isCurrent ? 'text-black/80' : 'text-gray-500'} block truncate">${st.sub}</span>
+            </div>
+          `;
+        });
+      }
+      container.innerHTML = html;
+      lucide.createIcons();
+    }
+
+    function switchDossierTab(tab) {
+      currentDossierTab = tab;
+      const tabs = ['triage', 'travel', 'gallery', 'map', 'chat', 'parties'];
+      tabs.forEach(t => {
+        const btn = document.getElementById(`tab-btn-${t}`);
+        const content = document.getElementById(`dossier-tab-${t}`);
+        if (!btn || !content) return;
+        if (t === tab) {
+          btn.className = 'pb-2.5 border-b-2 border-amber-500 text-amber-950 flex items-center space-x-1.5';
+          content.classList.remove('hidden');
+        } else {
+          btn.className = 'pb-2.5 border-b-2 border-transparent text-gray-500 hover:text-gray-800 flex items-center space-x-1.5';
+          content.classList.add('hidden');
+        }
+      });
+
+      if (tab === 'map') {
+        setTimeout(() => {
+          recenterMap();
+        }, 150);
+      }
+      lucide.createIcons();
+    }
+
+    // ================= MARITIME TRAVEL & RESERVATIONS =================
+    function populateTravel(data) {
+      const resList = data.travel_reservations || [];
+      const optList = data.travel_options || [];
+      document.getElementById('tab-travel-count').innerText = resList.length;
+
+      const bookedContainer = document.getElementById('travel-booked-list');
+      if (resList.length === 0) {
+        bookedContainer.innerHTML = `
+          <div class="p-6 text-center text-gray-400 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+            No maritime or flight reservations required for this domestic route.
+          </div>
+        `;
+      } else {
+        let html = '';
+        resList.forEach(r => {
+          html += `
+            <div class="p-4 bg-gray-50 rounded-lg border border-gray-200 text-xs space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="font-extrabold text-gray-900 text-sm">${r.route_label || r.kind}</span>
+                <span class="px-2 py-0.5 rounded font-mono font-bold text-[10px] bg-blue-100 text-blue-800">${r.status || 'BOOKED'}</span>
+              </div>
+              <div class="grid grid-cols-3 gap-2 text-gray-600">
+                <div><span class="text-gray-400 block text-[10px]">BOOKING REF</span><strong>${r.booking_reference || 'N/A'}</strong></div>
+                <div><span class="text-gray-400 block text-[10px]">SCHEDULED DEPARTURE</span><strong>${r.departure_at ? r.departure_at.replace('T', ' ').slice(0, 16) : 'TBD'}</strong></div>
+                <div><span class="text-gray-400 block text-[10px]">CHECK-IN CUTOFF</span><strong class="text-amber-700">${r.check_in_cutoff_at ? r.check_in_cutoff_at.replace('T', ' ').slice(0, 16) : 'N/A'}</strong></div>
+              </div>
+            </div>
+          `;
+        });
+        bookedContainer.innerHTML = html;
+      }
+
+      const optContainer = document.getElementById('travel-options-list');
+      if (optList.length === 0) {
+        optContainer.innerHTML = `<span class="text-gray-400 text-xs italic">No alternative quoted sailings on this corridor.</span>`;
+      } else {
+        let optHtml = '';
+        optList.forEach(opt => {
+          const price = round((opt.quote_cents || 38700) / 100, 2);
+          const dept = opt.departure_at ? opt.departure_at.slice(11, 16) : '12:00';
+          const label = `Rebook Ferry: ${opt.provider || 'Vela Coast Lines'} (${dept}) €${price}`;
+          optHtml += `
+            <div class="p-3 bg-white rounded-lg border border-gray-200 shadow-xs flex items-center justify-between text-xs">
+              <div>
+                <strong class="text-gray-900 block">${opt.provider || 'Vela Coast Lines'} • ${dept} Sailing</strong>
+                <span class="text-gray-500 text-[11px]">${opt.capacity_note || 'Deck space available'}</span>
+              </div>
+              <button onclick="requestActionWithUndo('REBOOK_FERRY_${opt.id}', 'Confirmed rebooking on alternate sailing', '${escapeAttr(label)}')" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded font-bold text-xs">
+                €${price} Book
+              </button>
+            </div>
+          `;
+        });
+        optContainer.innerHTML = optHtml;
+      }
+    }
+
+    // ================= EVIDENCE & DOCUMENTS & PROOFS =================
+    function populateGallery(data) {
+      const docs = data.documents || [];
+      const proofs = data.proofs || [];
+      const expenses = data.expenses || [];
+      const v = data.vehicle;
+      const countBadge = document.getElementById('tab-gallery-count');
+      const totalBadge = document.getElementById('gallery-total-badge');
+
+      // 1. Legal Documents Grid
+      const docsGrid = document.getElementById('docs-verification-grid');
+      let docsHtml = '';
+      if (docs.length === 0) {
+        docsHtml = `<div class="col-span-3 text-gray-400 text-xs italic p-3 bg-gray-50 rounded-lg">Standard electronic consignment certificate on file.</div>`;
+      } else {
+        docs.forEach(d => {
+          docsHtml += `
+            <div class="p-3 bg-gray-50 rounded-lg border border-gray-200 text-xs space-y-1">
+              <span class="text-gray-400 text-[10px] uppercase font-bold">${d.kind}</span>
+              <strong class="text-gray-900 block font-bold">${d.status} (${d.medium || 'DIGITAL'})</strong>
+              <span class="text-[10px] text-gray-500">${d.required ? 'Mandatory Handover Document' : 'Standard Consignment File'}</span>
+            </div>
+          `;
+        });
+      }
+      docsGrid.innerHTML = docsHtml;
+
+      // 2. Handover Proofs Grid (from proofs.jsonl)
+      const proofsGrid = document.getElementById('proofs-records-grid');
+      let proofsHtml = '';
+      if (proofs.length === 0) {
+        proofsHtml = `<div class="col-span-3 text-gray-400 text-xs italic p-3 bg-gray-50 rounded-lg">Digital handover protocol verified at dealer desk.</div>`;
+      } else {
+        proofs.forEach(p => {
+          proofsHtml += `
+            <div class="p-3 bg-gray-50 rounded-lg border border-gray-200 text-xs space-y-1">
+              <div class="flex items-center justify-between">
+                <span class="text-gray-500 text-[10px] uppercase font-bold">${p.kind.replace('_', ' ')}</span>
+                <span class="px-1.5 py-0.2 rounded font-mono text-[9px] font-bold ${p.status === 'APPROVED' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'}">${p.status}</span>
+              </div>
+              <strong class="text-gray-900 block font-bold">${p.file_count} Files Submitted</strong>
+              <span class="text-[10px] text-gray-500 block">Submitted: ${p.submitted_at ? p.submitted_at.slice(0, 16).replace('T', ' ') : 'On File'}</span>
+            </div>
+          `;
+        });
+      }
+      proofsGrid.innerHTML = proofsHtml;
+
+      // 3. Physical Photo Gallery
+      const container = document.getElementById('gallery-grid-container');
+      let items = [];
+
+      if (v && v.image_url) {
+        items.push({
+          kind: 'Vehicle Master Reference',
+          file_url: v.image_url,
+          is_image: true,
+          evidence_note: `${v.model_year} ${v.make} ${v.model} master illustration`
+        });
+      }
+
+      if (data.attachments && data.attachments.length > 0) {
+        items = items.concat(data.attachments);
+      }
+
+      countBadge.innerText = items.length + docs.length + proofs.length;
+      totalBadge.innerText = `${items.length} Files Linked`;
+
+      if (items.length === 0) {
+        container.innerHTML = `<div class="col-span-4 p-6 text-center text-gray-400 bg-gray-50 rounded-lg">Digital inspection records verified on file.</div>`;
+      } else {
+        let html = '';
+        items.forEach(it => {
+          const fileLabel = it.kind || 'Inspection Evidence';
+          const note = it.evidence_note || 'Inspection record';
+          const safeUrl = escapeAttr(it.file_url || '');
+          const safeLabel = escapeAttr(fileLabel);
+
+          if (it.is_image) {
+            html += `
+              <div onclick="openPhotoModal('${safeUrl}', '${safeLabel}')" class="bg-gray-50 border border-gray-200 rounded-lg overflow-hidden group cursor-pointer hover:shadow-md transition">
+                <div class="h-32 bg-gray-100 overflow-hidden flex items-center justify-center">
+                  <img src="${safeUrl}" alt="${safeLabel}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300">
+                </div>
+                <div class="p-2.5">
+                  <strong class="text-xs text-gray-900 block truncate">${fileLabel}</strong>
+                  <span class="text-[10px] text-gray-500 block truncate mt-0.5">${note}</span>
+                </div>
+              </div>
+            `;
+          } else {
+            html += `
+              <div class="bg-gray-50 border border-gray-200 rounded-lg p-3 flex flex-col justify-between">
+                <div>
+                  <i data-lucide="file-text" class="w-8 h-8 text-amber-600 mb-2"></i>
+                  <strong class="text-xs text-gray-900 block truncate">${fileLabel}</strong>
+                  <span class="text-[10px] text-gray-500 block truncate mt-0.5">${note}</span>
+                </div>
+                <a href="${safeUrl}" target="_blank" class="mt-3 text-center py-1.5 bg-gray-200 hover:bg-gray-300 rounded text-xs font-bold text-gray-800 transition">
+                  Open Document PDF ↗
+                </a>
+              </div>
+            `;
+          }
+        });
+        container.innerHTML = html;
+      }
+
+      // 4. Itemized Expenses
+      const expList = document.getElementById('dossier-expenses-list');
+      if (expenses.length === 0) {
+        expList.innerHTML = `<span class="text-gray-400 italic">No expense claims filed for this transport order.</span>`;
+      } else {
+        let expHtml = '';
+        expenses.forEach(ex => {
+          const amt = (ex.amount_cents / 100).toFixed(2);
+          expHtml += `
+            <div class="p-2.5 bg-gray-50 rounded-lg border border-gray-100 flex items-center justify-between">
+              <div>
+                <strong class="text-gray-900 font-bold block">${ex.kind} • ${ex.merchant || 'Highway Service'}</strong>
+                <span class="text-[10px] text-gray-500">${ex.submitted_at ? ex.submitted_at.slice(0, 10) : ''}</span>
+              </div>
+              <div class="text-right">
+                <span class="font-bold text-gray-900">${amt} ${ex.currency || 'EUR'}</span>
+                <span class="text-[10px] block font-semibold text-emerald-700">${ex.status}</span>
+              </div>
+            </div>
+          `;
+        });
+        expList.innerHTML = expHtml;
+      }
+
+      lucide.createIcons();
+    }
+
+    // ================= REAL HIGHWAY MAP & HOVER TOOLTIPS =================
+    function renderMapAndWaypoints(coords) {
+      const waypointsList = document.getElementById('map-waypoints-list');
+      let wHtml = '';
+      coords.waypoints.forEach((wp, idx) => {
+        wHtml += `
+          <div class="py-2.5 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+              <span class="w-6 h-6 rounded-full font-bold flex items-center justify-center text-xs ${wp.type === 'current' ? 'bg-amber-500 text-black' : 'bg-gray-100 text-gray-700'}">${idx + 1}</span>
+              <div>
+                <strong class="text-gray-900 block font-bold">${wp.name}</strong>
+                <span class="text-gray-500 text-[11px]">${wp.notes}</span>
+              </div>
+            </div>
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold ${wp.type === 'current' ? 'bg-amber-100 text-amber-900 border border-amber-300' : 'bg-gray-100 text-gray-600'}">${wp.status}</span>
+          </div>
+        `;
+      });
+      waypointsList.innerHTML = wHtml;
+
+      setTimeout(() => {
+        if (!leafletMap) {
+          leafletMap = L.map('leaflet-map-container').setView(coords.current_estimated, 5);
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 18,
+            attribution: '© OpenStreetMap'
+          }).addTo(leafletMap);
+        }
+
+        mapMarkers.forEach(m => leafletMap.removeLayer(m));
+        mapMarkers = [];
+        if (mapRouteLine) {
+          if (Array.isArray(mapRouteLine)) {
+            mapRouteLine.forEach(l => leafletMap.removeLayer(l));
+          } else {
+            leafletMap.removeLayer(mapRouteLine);
+          }
+        }
+        mapRouteLine = [];
+
+        const tState = coords.transit_state || 'PRE_TRANSIT';
+        const roadGeom = coords.road_geometry && coords.road_geometry.length > 1 ? coords.road_geometry : [coords.pickup, coords.delivery];
+
+        if (tState === 'PRE_TRANSIT') {
+          // Parked at origin dealership awaiting pickup
+          const pMarker = L.circleMarker(coords.pickup, { radius: 10, color: '#D97706', fillColor: '#F59E0B', fillOpacity: 1, weight: 3 })
+            .addTo(leafletMap)
+            .bindTooltip(`<b>Current Vehicle Position</b><br>Parked at ${coords.pickup_city} Dealership<br><span style="color:#b45309; font-weight:bold;">Status: Awaiting Driver Pickup</span>`, { sticky: true, className: 'custom-hover-tip' })
+            .bindPopup(`<b>Current Vehicle Position</b><br>Parked at ${coords.pickup_city} Dealership<br><span style="color:#b45309; font-weight:bold; font-size:11px;">Status: Awaiting Driver Pickup</span>`);
+          
+          const dMarker = L.circleMarker(coords.delivery, { radius: 8, color: '#3B82F6', fillColor: '#93C5FD', fillOpacity: 0.8, weight: 2 })
+            .addTo(leafletMap)
+            .bindTooltip(`<b>Scheduled Delivery Target</b><br>${coords.delivery_city} Dealership`, { sticky: true, className: 'custom-hover-tip' })
+            .bindPopup(`<b>Destination Target</b><br>${coords.delivery_city}<br><span style="color:#6b7280; font-size:11px;">Scheduled Delivery Destination</span>`);
+          
+          // Highway route polyline (Dashed planned corridor)
+          const plannedLine = L.polyline(roadGeom, { color: '#9CA3AF', weight: 4, dashArray: '6, 8' })
+            .addTo(leafletMap)
+            .bindTooltip(`<b>Planned Highway Corridor:</b> ${coords.pickup_city} → ${coords.delivery_city}`, { sticky: true, className: 'custom-hover-tip' });
+
+          mapMarkers.push(pMarker, dMarker);
+          mapRouteLine = [plannedLine];
+          leafletMap.fitBounds(plannedLine.getBounds(), { padding: [50, 50] });
+
+        } else if (tState === 'DELIVERED') {
+          // Delivered at destination dealership
+          const pMarker = L.circleMarker(coords.pickup, { radius: 6, color: '#6B7280', fillColor: '#D1D5DB', fillOpacity: 0.8, weight: 1.5 })
+            .addTo(leafletMap)
+            .bindTooltip(`<b>Origin (Completed):</b> ${coords.pickup_city}`, { sticky: true, className: 'custom-hover-tip' });
+          
+          const dMarker = L.circleMarker(coords.delivery, { radius: 11, color: '#059669', fillColor: '#10B981', fillOpacity: 1, weight: 3 })
+            .addTo(leafletMap)
+            .bindTooltip(`<b>Current Position: DELIVERED</b><br>${coords.delivery_city} Dealership<br><span style="color:#10b981; font-weight:bold;">Handover Completed & Keys Released</span>`, { sticky: true, className: 'custom-hover-tip' })
+            .bindPopup(`<b>Current Vehicle Position: DELIVERED</b><br>${coords.delivery_city} Dealership<br><span style="color:#047857; font-weight:bold; font-size:11px;">Handover Completed & Keys Released</span>`);
+          
+          const completedLine = L.polyline(roadGeom, { color: '#10B981', weight: 5 })
+            .addTo(leafletMap)
+            .bindTooltip(`<b>Completed Transit Corridor:</b> ${coords.pickup_city} → ${coords.delivery_city}`, { sticky: true, className: 'custom-hover-tip' });
+
+          mapMarkers.push(pMarker, dMarker);
+          mapRouteLine = [completedLine];
+          leafletMap.fitBounds(completedLine.getBounds(), { padding: [50, 50] });
+
+        } else if (tState === 'CANCELLED') {
+          const pMarker = L.circleMarker(coords.pickup, { radius: 9, color: '#E11D48', fillColor: '#FDA4AF', fillOpacity: 1, weight: 3 })
+            .addTo(leafletMap)
+            .bindTooltip(`<b>Vehicle Held at Origin</b><br>${coords.pickup_city} (Order Cancelled)`, { sticky: true, className: 'custom-hover-tip' });
+          mapMarkers.push(pMarker);
+          leafletMap.setView(coords.pickup, 7);
+
+        } else {
+          // IN_TRANSIT (MOVING)
+          const drivenGeom = coords.driven_geometry && coords.driven_geometry.length > 1 ? coords.driven_geometry : [coords.pickup, coords.current_estimated];
+          const remainingGeom = coords.remaining_geometry && coords.remaining_geometry.length > 1 ? coords.remaining_geometry : [coords.current_estimated, coords.delivery];
+
+          const pMarker = L.circleMarker(coords.pickup, { radius: 7, color: '#3B82F6', fillColor: '#93C5FD', fillOpacity: 0.8, weight: 2 })
+            .addTo(leafletMap)
+            .bindTooltip(`<b>Origin: ${coords.pickup_city}</b><br>Vehicle departed origin site`, { sticky: true, className: 'custom-hover-tip' });
+          
+          const curMarker = L.circleMarker(coords.current_estimated, { radius: 11, color: '#E11D48', fillColor: '#F43F5E', fillOpacity: 1, weight: 3 })
+            .addTo(leafletMap)
+            .bindTooltip(`<b>Live Vehicle Position: ${coords.current_status_text}</b><br><span style="color:#f43f5e; font-weight:bold;">Moving on Highway Corridor</span>`, { sticky: true, className: 'custom-hover-tip' })
+            .bindPopup(`<b>Current Live Position: ${coords.current_status_text}</b><br><span style="color:#be123c; font-weight:bold; font-size:11px;">Moving on Corridor</span>`);
+          
+          const dMarker = L.circleMarker(coords.delivery, { radius: 8, color: '#10B981', fillColor: '#A7F3D0', fillOpacity: 0.8, weight: 2 })
+            .addTo(leafletMap)
+            .bindTooltip(`<b>Destination Target: ${coords.delivery_city}</b><br>Handover pending`, { sticky: true, className: 'custom-hover-tip' });
+
+          // Solid line for distance driven so far
+          const drivenLine = L.polyline(drivenGeom, { color: '#2563EB', weight: 5 })
+            .addTo(leafletMap)
+            .bindTooltip(`<b>Highway Distance Driven:</b> ${coords.pickup_city} to ${coords.current_status_text}`, { sticky: true, className: 'custom-hover-tip' });
+
+          // Dashed line for remaining corridor
+          const remainingLine = L.polyline(remainingGeom, { color: '#F59E0B', weight: 4, dashArray: '6, 8' })
+            .addTo(leafletMap)
+            .bindTooltip(`<b>Remaining Highway Route:</b> to ${coords.delivery_city}`, { sticky: true, className: 'custom-hover-tip' });
+
+          mapMarkers.push(pMarker, curMarker, dMarker);
+          mapRouteLine = [drivenLine, remainingLine];
+          
+          const combinedBounds = L.latLngBounds([...drivenGeom, ...remainingGeom]);
+          leafletMap.fitBounds(combinedBounds, { padding: [50, 50] });
+        }
+      }, 100);
+    }
+
+    function recenterMap() {
+      if (leafletMap && mapMarkers && mapMarkers.length > 0) {
+        leafletMap.invalidateSize();
+        const group = new L.featureGroup(mapMarkers);
+        leafletMap.fitBounds(group.getBounds(), { padding: [50, 50] });
+      }
+    }
+
+    // ================= 5-SECOND ACTION CONFIRMATION & UNDO =================
+    function requestActionWithUndo(decisionCode, noteText, label) {
+      if (pendingActionTimer) {
+        clearInterval(pendingActionTimer);
+        pendingActionTimer = null;
+      }
+
+      pendingActionCountdown = 5;
+      pendingActionData = { decisionCode, noteText, label };
+
+      const bar = document.getElementById('action-undo-bar');
+      const labelEl = document.getElementById('undo-action-title');
+      const countEl = document.getElementById('undo-countdown-text');
+
+      labelEl.innerText = label || decisionCode;
+      countEl.innerText = `${pendingActionCountdown}s`;
+      bar.classList.remove('hidden');
+
+      pendingActionTimer = setInterval(() => {
+        pendingActionCountdown -= 1;
+        if (pendingActionCountdown <= 0) {
+          clearInterval(pendingActionTimer);
+          pendingActionTimer = null;
+          bar.classList.add('hidden');
+          commitActionExecution(pendingActionData.decisionCode, pendingActionData.noteText);
+          pendingActionData = null;
+        } else {
+          countEl.innerText = `${pendingActionCountdown}s`;
+        }
+      }, 1000);
+    }
+
+    function cancelPendingAction() {
+      if (pendingActionTimer) {
+        clearInterval(pendingActionTimer);
+        pendingActionTimer = null;
+      }
+      pendingActionData = null;
+      document.getElementById('action-undo-bar').classList.add('hidden');
+      showToast("Action cancelled. No changes were applied.", "info");
+    }
+
+    function executePendingActionNow() {
+      if (pendingActionTimer) {
+        clearInterval(pendingActionTimer);
+        pendingActionTimer = null;
+      }
+      document.getElementById('action-undo-bar').classList.add('hidden');
+      if (pendingActionData) {
+        commitActionExecution(pendingActionData.decisionCode, pendingActionData.noteText);
+        pendingActionData = null;
+      }
+    }
+
+    async function commitActionExecution(decisionCode, noteText) {
+      if (!selectedOrderId) return;
+      try {
+        const res = await fetch(`/api/orders/${selectedOrderId}/decision`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action_type: 'OPERATOR_DECISION',
+            decision: decisionCode,
+            operator_id: activeOperator,
+            notes: noteText
+          })
+        });
+        const result = await res.json();
+        if (result.success) {
+          await refreshData();
+          await openCarDetail(selectedOrderId);
+          showToast(`Action recorded: "${decisionCode}"`);
+        }
+      } catch (e) {
+        showToast('Error recording decision: ' + e, 'error');
+      }
+    }
+
+    async function handleSendDriverMessage(e) {
+      e.preventDefault();
+      const input = document.getElementById('wa-input');
+      const text = input.value.trim();
+      if (!text || !selectedOrderId) return;
+
+      input.value = '';
+      requestActionWithUndo(`Directive to Driver: "${text}"`, `Transmitted via driver interface by Operator ${activeOperator}`, `Send WhatsApp to Driver`);
+    }
+
+    // ================= WHATSAPP MESSAGES RENDERING =================
+    function populateWhatsApp(data) {
+      const container = document.getElementById('wa-messages-container');
+      const messages = data.messages || [];
+      const drv = data.driver;
+      
+      document.getElementById('chat-counterparty-name').innerText = drv ? `${drv.display_name} (${drv.home_city})` : 'Assigned Driver';
+
+      if (messages.length === 0) {
+        container.innerHTML = `<div class="text-center text-xs text-gray-500 my-8">No prior chat messages on this delivery record.</div>`;
+        return;
+      }
+
+      let html = '';
+      messages.forEach(m => {
+        const isOps = m.type === 'ops';
+        const isDriver = m.type === 'driver';
+        const isCustomer = m.type === 'customer';
+        const time = m.sent_at ? m.sent_at.slice(11, 16) : '';
+
+        if (isOps) {
+          html += `
+            <div class="flex justify-end">
+              <div class="bg-[#DCF8C6] text-gray-900 rounded-lg p-2.5 max-w-sm shadow-xs text-xs space-y-1">
+                <span class="text-[10px] font-bold text-emerald-800 block">Operator (Human - OP-042)</span>
+                <p class="leading-relaxed whitespace-pre-line">${escapeHtml(m.body)}</p>
+                <div class="text-[9px] text-gray-500 text-right flex items-center justify-end space-x-1">
+                  <span>${time}</span>
+                  <i data-lucide="check-check" class="w-3 h-3 text-blue-500"></i>
+                </div>
+              </div>
+            </div>
+          `;
+        } else if (isCustomer) {
+          html += `
+            <div class="flex justify-start">
+              <div class="bg-amber-100 text-gray-900 rounded-lg p-2.5 max-w-sm shadow-xs text-xs space-y-1">
+                <span class="text-[10px] font-bold text-amber-800 block">Customer Dealership (${m.sender_name})</span>
+                <p class="leading-relaxed whitespace-pre-line">${escapeHtml(m.body)}</p>
+                <div class="text-[9px] text-gray-500 text-right">${time}</div>
+              </div>
+            </div>
+          `;
+        } else {
+          html += `
+            <div class="flex justify-start">
+              <div class="bg-white text-gray-900 rounded-lg p-2.5 max-w-sm shadow-xs text-xs space-y-1">
+                <span class="text-[10px] font-bold text-gray-600 block">Assigned Driver (${m.sender_name})</span>
+                <p class="leading-relaxed whitespace-pre-line">${escapeHtml(m.body)}</p>
+                <div class="text-[9px] text-gray-400 text-right">${time}</div>
+              </div>
+            </div>
+          `;
+        }
+      });
+
+      container.innerHTML = html;
+      container.scrollTop = container.scrollHeight;
+      lucide.createIcons();
+    }
+
+    // ================= UNIFIED AI COPILOT SIDEBAR =================
+    function toggleAiSidebar() {
+      const sb = document.getElementById('ai-sidebar');
+      isAiSidebarOpen = !isAiSidebarOpen;
+      sb.classList.toggle('translate-x-full', !isAiSidebarOpen);
+      if (isAiSidebarOpen) {
+        document.getElementById('ai-sidebar-input').focus();
+      }
+    }
+
+    function openAiSidebarForCar() {
+      setAiScope('car');
+      if (!isAiSidebarOpen) toggleAiSidebar();
+    }
+
+    function setAiScope(scope) {
+      currentAiScope = scope;
+      const btnFleet = document.getElementById('ai-scope-fleet');
+      const btnCar = document.getElementById('ai-scope-car');
+      const carCard = document.getElementById('ai-car-context-card');
+
+      if (scope === 'fleet') {
+        btnFleet.className = 'flex-1 py-1 rounded-md bg-white text-black shadow-xs font-bold transition';
+        btnCar.className = 'flex-1 py-1 rounded-md text-gray-600 hover:text-black transition';
+        carCard.classList.add('hidden');
+      } else {
+        btnCar.className = 'flex-1 py-1 rounded-md bg-white text-black shadow-xs font-bold transition';
+        btnFleet.className = 'flex-1 py-1 rounded-md text-gray-600 hover:text-black transition';
+        if (selectedOrderId) carCard.classList.remove('hidden');
+      }
+    }
+
+    function updateAiSidebarContext(order, vehicle, att) {
+      document.getElementById('ai-context-ref').innerText = order.reference;
+      document.getElementById('ai-context-status').innerText = order.status;
+      document.getElementById('ai-context-title').innerText = vehicle ? `${vehicle.model_year} ${vehicle.make} ${vehicle.model}` : 'Fleet Vehicle';
+      document.getElementById('ai-context-issue').innerText = att.headline;
+    }
+
+    async function handleAiSidebarSubmit(e) {
+      e.preventDefault();
+      const input = document.getElementById('ai-sidebar-input');
+      const text = input.value.trim();
+      if (!text) return;
+
+      const model = document.getElementById('ai-model-select').value;
+      input.value = '';
+
+      appendAiMessage(`Operator (${activeOperator})`, text, 'user');
+
+      try {
+        const res = await fetch('/api/agent/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            order_id: currentAiScope === 'car' ? selectedOrderId : null,
+            user_message: text,
+            operator_id: activeOperator,
+            model: model,
+            scope: currentAiScope
+          })
+        });
+        const data = await res.json();
+        const senderLabel = `AI Assistant (${data.model_used.split('/')[1] || 'Copilot'})`;
+        appendAiMessage(senderLabel, data.reply, 'agent');
+      } catch (err) {
+        appendAiMessage('System', 'AI communication error', 'error');
+      }
+    }
+
+    function appendAiMessage(sender, text, type) {
+      const stream = document.getElementById('ai-chat-stream');
+      const div = document.createElement('div');
+      
+      if (type === 'user') {
+        div.className = 'p-2.5 bg-gray-200 rounded-lg text-gray-900 text-right';
+        div.innerHTML = `<span class="font-bold text-gray-500 text-[10px] block">${sender}</span><p class="mt-0.5 leading-snug">${escapeHtml(text)}</p>`;
+      } else if (type === 'error') {
+        div.className = 'p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-rose-800';
+        div.innerHTML = `<span class="font-bold text-[10px] block">Error:</span><p class="mt-0.5">${escapeHtml(text)}</p>`;
+      } else {
+        div.className = 'p-3 bg-white border border-purple-200 rounded-lg text-gray-800 text-left shadow-xs';
+        div.innerHTML = `
+          <div class="flex items-center space-x-1.5 mb-1">
+            <span class="w-2 h-2 rounded-full bg-purple-600"></span>
+            <strong class="font-bold text-purple-900 text-[10px] uppercase">${sender}</strong>
+          </div>
+          <p class="mt-0.5 whitespace-pre-line leading-relaxed">${escapeHtml(text)}</p>
+        `;
+      }
+
+      stream.appendChild(div);
+      stream.scrollTop = stream.scrollHeight;
+    }
+
+    async function runSentinelAgent() {
+      if (!selectedOrderId) {
+        showToast("Select a car first to run the Auto-Solver agent.", "info");
+        return;
+      }
+      const btn = document.getElementById('btn-sidebar-run-agent');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i><span>Agent Inquiring Tools...</span>`;
+      }
+      lucide.createIcons();
+
+      try {
+        const res = await fetch(`/api/orders/${selectedOrderId}/agent/run`, { method: 'POST' });
+        const result = await res.json();
+
+        if (result.success) {
+          const prop = result.proposal;
+          const msg = `Auto-Solver proposed: ${prop.title} (€${prop.estimated_cost_eur.toFixed(2)}). Rationale: ${prop.rationale}`;
+          appendAiMessage('Autonomous Resolution Agent', msg, 'agent');
+          showToast("Auto-Solver proposal generated.");
+          if (!isAiSidebarOpen) toggleAiSidebar();
+        }
+      } catch (err) {
+        showToast("Error running agent: " + err, "error");
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = `<i data-lucide="sparkles" class="w-3.5 h-3.5"></i><span>Run Autonomous Resolution Agent</span>`;
+        }
+        lucide.createIcons();
+      }
+    }
+
+    // ================= SUPPORT INBOX VIEW =================
+    async function loadSupportInbox() {
+      const container = document.getElementById('support-inbox-threads-list');
+      container.innerHTML = `<div class="p-8 text-center text-gray-400">Loading support inbox...</div>`;
+
+      try {
+        const res = await fetch('/api/support-inbox');
+        const data = await res.json();
+
+        if (data.threads.length === 0) {
+          container.innerHTML = `<div class="p-8 text-center text-gray-400">No support threads active.</div>`;
+          return;
+        }
+
+        let html = '';
+        data.threads.forEach(t => {
+          const isPending = t.link_state === 'PENDING_MATCH' || t.status === 'OPEN';
+          
+          let candidatesHtml = '';
+          if (t.candidate_orders && t.candidate_orders.length > 0) {
+            candidatesHtml = `
+              <div class="mt-3 p-3 bg-amber-50 rounded-lg border border-amber-200 space-y-2">
+                <span class="text-[11px] font-bold text-amber-900 uppercase">Suggested Order Matches:</span>
+                <div class="flex items-center space-x-2">
+                  ${t.candidate_orders.map(co => `
+                    <button onclick="requestActionWithUndo('LINK_THREAD_${t.id}_TO_${co.id}', 'Thread linked to ${co.reference}', 'Link Thread to ${co.reference}')" class="px-3 py-1.5 bg-gray-900 hover:bg-black text-white text-xs font-bold rounded flex items-center space-x-1.5 transition">
+                      <i data-lucide="link" class="w-3.5 h-3.5"></i>
+                      <span>Link to ${co.reference} (${co.vehicle})</span>
+                    </button>
+                  `).join('')}
+                </div>
+              </div>
+            `;
+          }
+
+          let msgsHtml = '';
+          t.messages.forEach(m => {
+            const isDriver = m.author_type === 'driver';
+            msgsHtml += `
+              <div class="p-2.5 rounded-lg text-xs ${isDriver ? 'bg-gray-100 text-gray-800 text-left' : 'bg-blue-50 text-blue-900 text-left'}">
+                <span class="font-bold text-[10px] uppercase block">${m.author_type} (${m.author_id}):</span>
+                <p class="mt-0.5 leading-relaxed">${escapeHtml(m.body)}</p>
+                <span class="text-[9px] text-gray-400 block mt-1">${m.authored_at ? m.authored_at.replace('T', ' ').slice(0, 16) : ''}</span>
+              </div>
+            `;
+          });
+
+          html += `
+            <div class="bg-white rounded-xl border border-gray-200 p-5 shadow-xs space-y-3">
+              <div class="flex items-center justify-between border-b border-gray-100 pb-2.5">
+                <div class="flex items-center space-x-2">
+                  <span class="px-2 py-0.5 rounded text-[10px] font-extrabold font-mono bg-gray-100 text-gray-700 uppercase">${t.channel}</span>
+                  <strong class="text-xs text-gray-900 font-bold">${t.id}</strong>
+                  <span class="px-2 py-0.5 rounded text-[10px] font-bold ${isPending ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'}">${t.link_state}</span>
+                </div>
+                <span class="text-xs text-gray-400">${t.status}</span>
+              </div>
+
+              <div class="space-y-2">
+                ${msgsHtml}
+              </div>
+
+              ${candidatesHtml}
+            </div>
+          `;
+        });
+
+        container.innerHTML = html;
+        lucide.createIcons();
+      } catch (err) {
+        container.innerHTML = `<div class="p-8 text-center text-rose-500">Error loading support inbox</div>`;
+      }
+    }
+
+    // ================= AUDIT LOG & FINANCIALS =================
+    async function loadGlobalHistory() {
+      const tbody = document.getElementById('global-history-tbody');
+      tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-gray-400">Loading audit feed...</td></tr>`;
+
+      try {
+        const res = await fetch('/api/history');
+        globalAuditCache = await res.json();
+
+        if (globalAuditCache.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-gray-400">No operational records recorded</td></tr>`;
+          return;
+        }
+
+        let html = '';
+        globalAuditCache.forEach(h => {
+          const time = h.timestamp ? h.timestamp.replace('T', ' ').slice(0, 19) : 'Just now';
+          html += `
+            <tr class="hover:bg-gray-50">
+              <td class="p-3 font-mono text-gray-500 whitespace-nowrap">${time}</td>
+              <td class="p-3">
+                <strong class="font-bold text-gray-900 block">${h.operator_id}</strong>
+                <span class="text-[10px] text-gray-400 font-medium">${h.notes || ''}</span>
+              </td>
+              <td class="p-3 font-mono font-bold text-amber-700 whitespace-nowrap">${h.order_ref}</td>
+              <td class="p-3 text-gray-700 whitespace-nowrap font-medium">${h.car || 'Fleet Vehicle'}</td>
+              <td class="p-3 whitespace-nowrap"><span class="px-2 py-0.5 rounded bg-gray-100 text-gray-700 font-semibold uppercase text-[10px]">${h.action_type}</span></td>
+              <td class="p-3 text-gray-800 leading-snug font-medium">${escapeHtml(h.decision)}</td>
+            </tr>
+          `;
+        });
+        tbody.innerHTML = html;
+      } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-rose-500">Error loading audit feed</td></tr>`;
+      }
+    }
+
+    function exportAuditLog() {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(globalAuditCache, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", `bahn_audit_log_${new Date().toISOString().slice(0,10)}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+    }
+
+    async function clearAuditLog() {
+      requestActionWithUndo('CLEAR_HISTORY', 'Operations audit log reset', 'Reset Operations History');
+    }
+
+    async function loadFinancials() {
+      const cat = document.getElementById('fin-cat-filter').value;
+      const status = document.getElementById('fin-status-filter').value;
+      
+      try {
+        const res = await fetch(`/api/financials?category=${cat}&status=${status}`);
+        const fin = await res.json();
+
+        document.getElementById('fin-gross-rev').innerText = `€${fin.summary.gross_revenue_eur.toLocaleString()}`;
+        document.getElementById('fin-driver-payouts').innerText = `€${fin.summary.driver_payouts_eur.toLocaleString()}`;
+        document.getElementById('fin-trip-expenses').innerText = `€${fin.summary.trip_expenses_eur.toLocaleString()}`;
+        document.getElementById('fin-net-profit').innerText = `€${fin.summary.net_profit_eur.toLocaleString()}`;
+        document.getElementById('fin-margin-pct').innerText = `${fin.summary.margin_pct}% Net Margin`;
+
+        const tbody = document.getElementById('fin-expenses-tbody');
+        let trHtml = '';
+        fin.expenses.forEach(ex => {
+          const proofBtn = ex.proof_url ? `
+            <button onclick="openPhotoModal('${escapeAttr(ex.proof_url)}', '${escapeAttr(ex.kind)} Receipt Proof')" class="px-2.5 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded text-[11px] font-bold inline-flex items-center space-x-1">
+              <i data-lucide="eye" class="w-3 h-3"></i>
+              <span>View Proof</span>
+            </button>
+          ` : `<span class="text-gray-400 text-[10px]">On File</span>`;
+
+          trHtml += `
+            <tr class="hover:bg-gray-50">
+              <td class="p-3 text-gray-500 font-mono">${ex.submitted_at ? ex.submitted_at.slice(0, 10) : ''}</td>
+              <td class="p-3 font-bold text-gray-800">${ex.kind}</td>
+              <td class="p-3 text-gray-600">${ex.merchant || 'Highway Transit Service'}</td>
+              <td class="p-3 font-mono font-bold text-amber-700">${ex.order_id}</td>
+              <td class="p-3 font-bold text-gray-900">${ex.amount_formatted}</td>
+              <td class="p-3"><span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-700">${ex.status}</span></td>
+              <td class="p-3 text-right">${proofBtn}</td>
+            </tr>
+          `;
+        });
+        tbody.innerHTML = trHtml;
+        lucide.createIcons();
+      } catch (err) {
+        console.error('Error loading financials:', err);
+      }
+    }
+
+    // Modal helpers
+    function openPhotoModal(url, caption) {
+      document.getElementById('photo-modal-img').src = url;
+      document.getElementById('photo-modal-caption').innerText = caption;
+      document.getElementById('photo-modal').classList.remove('hidden');
+    }
+
+    function closePhotoModal() {
+      document.getElementById('photo-modal').classList.add('hidden');
+    }
+
+    function promptOperatorId() {
+      document.getElementById('operator-input').value = activeOperator;
+      document.getElementById('operator-modal').classList.remove('hidden');
+    }
+
+    function closeOperatorModal() {
+      document.getElementById('operator-modal').classList.add('hidden');
+    }
+
+    function saveOperatorId() {
+      const val = document.getElementById('operator-input').value.trim();
+      if (val) {
+        activeOperator = val;
+        localStorage.setItem('bahn_operator_id', val);
+        document.getElementById('operator-display').innerText = val;
+        document.getElementById('decision-operator-label').innerText = val;
+      }
+      closeOperatorModal();
+      showToast(`Operator ID set to ${activeOperator}`);
+    }
+
+    // Utility string escapes
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function escapeAttr(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/'/g, "\\'")
+        .replace(/"/g, '&quot;');
+    }
+
+    function round(val, dec) {
+      return Number(Math.round(val + 'e' + dec) + 'e-' + dec);
+    }
+
+    // Start application on DOM ready
+    window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>
