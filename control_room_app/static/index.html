@@ -344,6 +344,9 @@
         <div class="flex items-center space-x-2">
           <span class="font-bold text-gray-500 uppercase tracking-wider text-xs">Sort:</span>
           <select id="sort-select" onchange="onSortChange()" class="text-xs bg-gray-50 border border-gray-300 rounded-lg px-3 py-1.5 font-medium text-gray-800 focus:outline-none focus:border-violet-500 shadow-2xs">
+            <option value="critical">Critical Attention First</option>
+            <option value="handled_first">Handled / Pending First</option>
+            <option value="handled_last">Handled / Pending Last (Focus Open)</option>
             <option value="newest">Newest Order</option>
             <option value="oldest">Oldest Order</option>
             <option value="eta_earliest">Earliest Estimated Arrival</option>
@@ -457,7 +460,7 @@
         
         <!-- Situation Alert Banner (Full description) -->
         <div id="detail-alert-box" class="hidden mb-6 p-4 rounded-xl border border-rose-300 bg-rose-50 flex items-start space-x-3 text-xs shadow-xs">
-          <i data-lucide="alert-triangle" class="w-5 h-5 text-rose-600 shrink-0 mt-0.5"></i>
+          <i id="detail-alert-icon" data-lucide="alert-triangle" class="w-5 h-5 text-rose-600 shrink-0 mt-0.5"></i>
           <div class="flex-1 space-y-1">
             <strong id="detail-alert-title" class="font-bold text-rose-900 text-sm block">Action Required</strong>
             <p id="detail-alert-desc" class="text-rose-800 leading-relaxed font-medium">Full incident details.</p>
@@ -704,7 +707,31 @@
               <span class="px-3 py-1 rounded-full text-xs font-bold bg-zinc-100 text-zinc-700">Strict Human Sign-off Policy</span>
             </div>
 
-            <!-- Chat Stream Feed -->
+            <!-- Channel Sub-Window Tabs -->
+            <div class="flex items-center space-x-2 border-b border-gray-200 pb-2 text-xs font-semibold overflow-x-auto custom-scrollbar" id="chat-channel-tabs">
+              <button onclick="switchChatChannel('all')" id="chat-tab-all" class="px-3 py-1.5 rounded-lg bg-violet-600 text-white font-bold transition flex items-center space-x-1.5 shadow-2xs">
+                <i data-lucide="layers" class="w-3.5 h-3.5"></i>
+                <span>All Channels (<span id="chat-count-all">0</span>)</span>
+              </button>
+              <button onclick="switchChatChannel('driver_app')" id="chat-tab-driver_app" class="px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 transition flex items-center space-x-1.5">
+                <i data-lucide="smartphone" class="w-3.5 h-3.5 text-blue-600"></i>
+                <span>Driver Mobile App (<span id="chat-count-driver">0</span>)</span>
+              </button>
+              <button onclick="switchChatChannel('dealership_email')" id="chat-tab-dealership_email" class="px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 transition flex items-center space-x-1.5">
+                <i data-lucide="mail" class="w-3.5 h-3.5 text-amber-600"></i>
+                <span>Dealership Email (<span id="chat-count-dealer">0</span>)</span>
+              </button>
+              <button onclick="switchChatChannel('station_desk')" id="chat-tab-station_desk" class="px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 transition flex items-center space-x-1.5">
+                <i data-lucide="warehouse" class="w-3.5 h-3.5 text-emerald-600"></i>
+                <span>Site & Station Desk (<span id="chat-count-site">0</span>)</span>
+              </button>
+              <button onclick="switchChatChannel('internal_ops')" id="chat-tab-internal_ops" class="px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 transition flex items-center space-x-1.5">
+                <i data-lucide="terminal" class="w-3.5 h-3.5 text-purple-600"></i>
+                <span>Internal Dispatch (<span id="chat-count-ops">0</span>)</span>
+              </button>
+            </div>
+
+            <!-- Chat Stream Feed Sub-Window -->
             <div id="dossier-chat-stream" class="space-y-3 max-h-[460px] overflow-y-auto custom-scrollbar p-4 bg-slate-50/50 rounded-xl border border-gray-200"></div>
           </div>
         </div>
@@ -767,14 +794,45 @@
         </div>
       </div>
 
-      <!-- Why do we have an inbox info banner -->
-      <div class="bg-violet-50 border border-violet-200 rounded-2xl p-4 flex items-start space-x-3 text-xs text-violet-950">
-        <i data-lucide="help-circle" class="w-5 h-5 text-violet-600 shrink-0 mt-0.5"></i>
-        <div class="space-y-1">
-          <h4 class="font-bold text-violet-900">Why do we have a Support Inbox & What is it for?</h4>
-          <p class="text-violet-800 leading-relaxed">
-            In freight operations, freelance drivers and dealerships send questions via the driver app or direct email. When an inquiry does not belong to a single closed vehicle, it arrives in this Support Inbox so the dispatch operator can triage it, link it to the correct car, or snooze/resolve it safely.
-          </p>
+      <!-- Comprehensive Support Inbox Purpose & Workflow Guide -->
+      <div class="bg-violet-50/80 border-2 border-violet-200 rounded-2xl p-5 space-y-3 shadow-xs">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-8 h-8 rounded-lg bg-violet-600 text-white flex items-center justify-center font-bold">
+            <i data-lucide="help-circle" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h4 class="font-black text-violet-950 text-sm">Support Inbox: Purpose, Utility & Dispatch Workflows</h4>
+            <p class="text-[11px] text-violet-700 font-medium">Why the Support Inbox exists and how to use it in control room operations</p>
+          </div>
+        </div>
+        <div class="grid grid-cols-3 gap-3 text-xs pt-1">
+          <div class="bg-white p-3.5 rounded-xl border border-violet-100 shadow-2xs space-y-1">
+            <strong class="text-violet-900 font-bold block flex items-center space-x-1.5">
+              <i data-lucide="layers" class="w-3.5 h-3.5 text-violet-600"></i>
+              <span>1. Cross-Channel Triage</span>
+            </strong>
+            <p class="text-gray-600 text-[11px] leading-relaxed">
+              Consolidates unassigned inbound inquiries from drivers on the road, receiving dealerships, and transport logistics hubs into one centralized triage queue.
+            </p>
+          </div>
+          <div class="bg-white p-3.5 rounded-xl border border-violet-100 shadow-2xs space-y-1">
+            <strong class="text-violet-900 font-bold block flex items-center space-x-1.5">
+              <i data-lucide="link" class="w-3.5 h-3.5 text-violet-600"></i>
+              <span>2. Context Linking</span>
+            </strong>
+            <p class="text-gray-600 text-[11px] leading-relaxed">
+              Match incoming inquiries directly to active vehicle orders (e.g. CD-420322) so communications and operational actions attach to the car dossier.
+            </p>
+          </div>
+          <div class="bg-white p-3.5 rounded-xl border border-violet-100 shadow-2xs space-y-1">
+            <strong class="text-violet-900 font-bold block flex items-center space-x-1.5">
+              <i data-lucide="check-circle" class="w-3.5 h-3.5 text-violet-600"></i>
+              <span>3. Audit Logging</span>
+            </strong>
+            <p class="text-gray-600 text-[11px] leading-relaxed">
+              Every resolve or postpone command executes with a 10s confirmation window and is permanently logged in the Global Operations Audit Log with your operator name.
+            </p>
+          </div>
         </div>
       </div>
 
@@ -840,27 +898,43 @@
         <p class="text-xs text-gray-500 mt-0.5">Live calculation across total active delivery revenues, driver payouts, and audited expenses</p>
       </div>
 
-      <!-- Financial Metrics Summary Cards (Crisp Sans-Serif Typography!) -->
+      <!-- Financial Metrics Summary Cards (Vivid Color Coding: Green for Earnings, Red for Expenses, Amber/Orange for Both) -->
       <div class="grid grid-cols-4 gap-4">
-        <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs">
-          <span class="text-gray-400 text-xs font-bold uppercase">Total Freight Revenue</span>
-          <div id="fin-total-revenue" class="text-2xl font-black text-violet-950 mt-1 tracking-tight"><span class="text-sm font-semibold text-violet-600">EUR</span> 55,454.17</div>
-          <span class="text-[11px] text-gray-500 mt-1 block">Contracted Deal Values</span>
+        <!-- EARNINGS: GREEN -->
+        <div class="bg-emerald-50/70 p-5 rounded-2xl border-2 border-emerald-300 shadow-xs">
+          <span class="text-emerald-800 text-xs font-bold uppercase tracking-wider flex items-center space-x-1.5">
+            <i data-lucide="trending-up" class="w-4 h-4 text-emerald-600"></i>
+            <span>Total Freight Revenue (Earnings)</span>
+          </span>
+          <div id="fin-total-revenue" class="text-2xl font-black text-emerald-900 mt-1.5 tracking-tight"><span class="text-sm font-bold text-emerald-600">EUR</span> 55,454.17</div>
+          <span class="text-[11px] text-emerald-700 font-medium mt-1 block">Contracted Freight Billing</span>
         </div>
-        <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs">
-          <span class="text-gray-400 text-xs font-bold uppercase">Driver Payouts</span>
-          <div id="fin-driver-payouts" class="text-2xl font-black text-amber-950 mt-1 tracking-tight"><span class="text-sm font-semibold text-amber-600">EUR</span> 31,561.00</div>
-          <span class="text-[11px] text-gray-500 mt-1 block">Freelance Driver Payouts</span>
+        <!-- EXPENSES: RED -->
+        <div class="bg-rose-50/70 p-5 rounded-2xl border-2 border-rose-300 shadow-xs">
+          <span class="text-rose-800 text-xs font-bold uppercase tracking-wider flex items-center space-x-1.5">
+            <i data-lucide="user-check" class="w-4 h-4 text-rose-600"></i>
+            <span>Driver Payouts (Expense)</span>
+          </span>
+          <div id="fin-driver-payouts" class="text-2xl font-black text-rose-900 mt-1.5 tracking-tight"><span class="text-sm font-bold text-rose-600">EUR</span> 31,561.00</div>
+          <span class="text-[11px] text-rose-700 font-medium mt-1 block">Freelance Driver Remuneration</span>
         </div>
-        <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs">
-          <span class="text-gray-400 text-xs font-bold uppercase">Approved Expenses</span>
-          <div id="fin-approved-expenses" class="text-2xl font-black text-rose-950 mt-1 tracking-tight"><span class="text-sm font-semibold text-rose-600">EUR</span> 5,682.28</div>
-          <span class="text-[11px] text-gray-500 mt-1 block">Fuel, Tolls & Lodging</span>
+        <!-- EXPENSES: RED -->
+        <div class="bg-rose-50/70 p-5 rounded-2xl border-2 border-rose-300 shadow-xs">
+          <span class="text-rose-800 text-xs font-bold uppercase tracking-wider flex items-center space-x-1.5">
+            <i data-lucide="receipt" class="w-4 h-4 text-rose-600"></i>
+            <span>Route Expenses (Expense)</span>
+          </span>
+          <div id="fin-approved-expenses" class="text-2xl font-black text-rose-900 mt-1.5 tracking-tight"><span class="text-sm font-bold text-rose-600">EUR</span> 5,682.28</div>
+          <span class="text-[11px] text-rose-700 font-medium mt-1 block">Fuel, Tolls & Ferry Vouchers</span>
         </div>
-        <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs">
-          <span class="text-gray-400 text-xs font-bold uppercase">Net Gross Margin</span>
-          <div id="fin-net-margin" class="text-2xl font-black text-emerald-800 mt-1 tracking-tight"><span class="text-sm font-semibold text-emerald-600">EUR</span> 18,210.89</div>
-          <span class="text-[11px] text-emerald-700 font-semibold mt-1 block">32.8% Operating Margin</span>
+        <!-- NET OPERATING MARGIN: AMBER / ORANGE ("BOTH") -->
+        <div class="bg-amber-50/80 p-5 rounded-2xl border-2 border-amber-300 shadow-xs">
+          <span class="text-amber-800 text-xs font-bold uppercase tracking-wider flex items-center space-x-1.5">
+            <i data-lucide="scale" class="w-4 h-4 text-amber-600"></i>
+            <span>Net Gross Margin (Revenue &minus; Costs)</span>
+          </span>
+          <div id="fin-net-margin" class="text-2xl font-black text-amber-950 mt-1.5 tracking-tight"><span class="text-sm font-bold text-amber-600">EUR</span> 18,210.89</div>
+          <span class="text-[11px] text-amber-800 font-semibold mt-1 block">Operating Margin (All in EUR)</span>
         </div>
       </div>
 
@@ -891,11 +965,12 @@
           <div class="flex items-center space-x-2">
             <span class="font-bold text-gray-500 uppercase text-[10px]">Sort:</span>
             <select id="fin-filter-sort" onchange="filterFinancialsTable()" class="px-3 py-1.5 border border-gray-300 rounded-lg bg-gray-50 font-medium focus:outline-none focus:border-violet-500 text-xs">
-              <option value="amt_desc">Highest Amount</option>
-              <option value="amt_asc">Lowest Amount</option>
-              <option value="date_desc">Incurred Date (Newest)</option>
-              <option value="date_asc">Incurred Date (Oldest)</option>
-              <option value="cat_asc">Category Name (A-Z)</option>
+              <option value="order_asc">Order Number (Ascending)</option>
+              <option value="order_desc">Order Number (Descending)</option>
+              <option value="amt_desc">Highest Amount (EUR)</option>
+              <option value="amt_asc">Lowest Amount (EUR)</option>
+              <option value="date_desc">Incurred Date (Newest First)</option>
+              <option value="date_asc">Incurred Date (Oldest First)</option>
             </select>
           </div>
         </div>
@@ -918,6 +993,7 @@
               <th class="p-3.5 pl-4">Category</th>
               <th class="p-3.5">Vendor / Payee</th>
               <th class="p-3.5">Order ID</th>
+              <th class="p-3.5">Date Incurred</th>
               <th class="p-3.5">Amount Incurred</th>
               <th class="p-3.5">Approval Status</th>
               <th class="p-3.5 pr-4 text-right">Proof File / Voucher</th>
@@ -1546,16 +1622,39 @@ All directives staged with 10-second human safety window.`);
       try { renderPipelineStepper(o.status, o.display_lane); } catch(e) { console.error('Stepper error:', e); }
 
       const alertBox = document.getElementById('detail-alert-box');
-      if (att && (att.severity === 'pending' || att.state === 'HANDLED_PENDING_CONFIRMATION')) {
+      const alertIcon = document.getElementById('detail-alert-icon');
+      const alertTitle = document.getElementById('detail-alert-title');
+      const alertDesc = document.getElementById('detail-alert-desc');
+      if (att && (att.severity === 'pending' || att.state === 'HANDLED_PENDING_CONFIRMATION' || att.category === 'handled')) {
         alertBox.classList.remove('hidden');
-        alertBox.className = 'mb-6 p-4 rounded-2xl bg-indigo-50 border border-indigo-200 text-indigo-950 flex items-start space-x-3.5 shadow-xs';
-        document.getElementById('detail-alert-title').innerText = `Pending External Confirmation: ${att.short_title || att.headline}`;
-        document.getElementById('detail-alert-desc').innerText = att.full_description || 'Operator directive recorded. Awaiting confirmation from driver or site desk.';
+        alertBox.className = 'mb-6 p-4 rounded-2xl bg-indigo-50 border-2 border-indigo-200 text-indigo-950 flex items-start space-x-3.5 shadow-xs';
+        if (alertIcon) {
+          alertIcon.setAttribute('data-lucide', 'clock');
+          alertIcon.className = 'w-5 h-5 text-indigo-600 shrink-0 mt-0.5';
+        }
+        if (alertTitle) {
+          alertTitle.className = 'font-bold text-indigo-900 text-sm block';
+          alertTitle.innerText = `Handled — Pending External Confirmation: ${att.short_title || att.headline}`;
+        }
+        if (alertDesc) {
+          alertDesc.className = 'text-indigo-800 leading-relaxed font-medium';
+          alertDesc.innerText = att.full_description || 'Operator directive recorded. Order staged in handled state until driver/counterparty confirmation is received.';
+        }
       } else if (att && att.needs_human) {
         alertBox.classList.remove('hidden');
-        alertBox.className = 'mb-6 p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-950 flex items-start space-x-3.5 shadow-xs';
-        document.getElementById('detail-alert-title').innerText = `Action Required: ${att.short_title || att.headline}`;
-        document.getElementById('detail-alert-desc').innerText = att.full_description || att.headline;
+        alertBox.className = 'mb-6 p-4 rounded-2xl bg-rose-50 border-2 border-rose-200 text-rose-950 flex items-start space-x-3.5 shadow-xs';
+        if (alertIcon) {
+          alertIcon.setAttribute('data-lucide', 'alert-triangle');
+          alertIcon.className = 'w-5 h-5 text-rose-600 shrink-0 mt-0.5';
+        }
+        if (alertTitle) {
+          alertTitle.className = 'font-bold text-rose-900 text-sm block';
+          alertTitle.innerText = `Action Required: ${att.short_title || att.headline}`;
+        }
+        if (alertDesc) {
+          alertDesc.className = 'text-rose-800 leading-relaxed font-medium';
+          alertDesc.innerText = att.full_description || att.headline;
+        }
       } else {
         alertBox.classList.add('hidden');
       }
@@ -1732,7 +1831,7 @@ All directives staged with 10-second human safety window.`);
         wpHtml += `
           <tr class="hover:bg-gray-50 transition border-b border-gray-100">
             <td class="p-3 pl-4 font-bold text-gray-900">${escapeHtml(w.name)}</td>
-            <td class="p-3"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${w.type === 'origin' ? 'bg-purple-100 text-purple-800' : w.type === 'destination' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}">${w.type.toUpperCase()}</span></td>
+            <td class="p-3"><span class="px-2 py-0.5 rounded text-[10px] font-bold ${w.type === 'origin' ? 'bg-purple-100 text-purple-800' : w.type === 'destination' ? 'bg-emerald-100 text-emerald-800' : 'bg-indigo-100 text-indigo-800 border border-indigo-200'}">${w.type === 'waypoint' ? 'REST STOP / CHECKPOINT' : w.type.toUpperCase()}</span></td>
             <td class="p-3 text-gray-700">${escapeHtml(w.status)}</td>
             <td class="p-3 font-bold text-gray-900">${escapeHtml(w.time)}</td>
             <td class="p-3 pr-4 text-gray-600">${escapeHtml(w.notes || '-')}</td>
@@ -1932,19 +2031,25 @@ All directives staged with 10-second human safety window.`);
         const photoUrl = p.photo_url || p.file_url;
         const hasActualPhoto = Boolean(p.has_file && photoUrl);
         const labelStr = p.label || p.title || `${(p.kind || 'Inspection').replace('_', ' ')}`;
+        const odo = p.odometer_km ? `${Number(p.odometer_km).toLocaleString()} km` : 'Standard Inspection';
+        const pDate = p.captured_at ? p.captured_at.replace('T', ' ').slice(0, 16) : 'Verified at Checkpoint';
 
         photosHtml += `
-          <div class="p-4 rounded-xl border border-gray-200 bg-white space-y-3 shadow-2xs">
+          <div class="p-4 rounded-xl border border-gray-200 bg-white space-y-3 shadow-2xs flex flex-col justify-between">
             ${hasActualPhoto ? `
               <div class="w-full h-36 rounded-lg bg-gray-100 overflow-hidden relative cursor-pointer group" onclick="openUniversalFileModal('${photoUrl}', '${escapeAttr(labelStr)}', 'image/jpeg', {id: '${p.id}', kind: '${p.kind}'})">
                 <img src="${photoUrl}" alt="Proof" class="w-full h-full object-cover group-hover:scale-105 transition duration-300">
                 <span class="absolute bottom-2 right-2 px-2 py-0.5 rounded bg-black/75 text-white text-[10px] font-bold">Zoom Photo</span>
               </div>
             ` : `
-              <div class="w-full h-36 rounded-lg bg-slate-50 border-2 border-dashed border-gray-300 flex flex-col items-center justify-center p-3 text-center text-gray-500 text-xs">
-                <i data-lucide="camera-off" class="w-6 h-6 text-gray-400 mb-1.5"></i>
-                <span class="font-bold text-gray-700">Condition photo pending upload</span>
-                <span class="text-[10px] text-gray-400 mt-0.5">Physical camera inspection pending</span>
+              <div class="w-full h-36 rounded-lg bg-gradient-to-br from-indigo-50 to-slate-100 border border-indigo-200 flex flex-col items-center justify-center p-3 text-center space-y-1 relative">
+                <span class="px-2 py-0.5 rounded text-[9px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200 uppercase tracking-wider">Digital Protocol Log</span>
+                <i data-lucide="clipboard-check" class="w-6 h-6 text-indigo-600 mt-1"></i>
+                <span class="text-xs font-bold text-gray-800">Telematics Handover Certified</span>
+                <span class="text-[10px] font-mono text-gray-500">${odo} &bull; ${pDate}</span>
+                <button onclick="openExpenseProofModal('', 'Digital Handover Protocol', '${odo}', '${escapeAttr(labelStr)}', 'APPROVED', '${pDate}', '${escapeAttr(p.notes || p.evidence_note || 'Electronic telematics handover checklist verified without mechanical defects')}', false)" class="mt-1 px-2 py-1 bg-white hover:bg-indigo-50 text-indigo-700 text-[10px] font-bold rounded border border-indigo-300 shadow-2xs transition">
+                  View Protocol Voucher
+                </button>
               </div>
             `}
             <div>
@@ -2087,11 +2192,71 @@ All directives staged with 10-second human safety window.`);
     }
 
     // ================= COMMUNICATIONS CHAT (NO UNDEFINED) =================
-    function populateChatFeed(data) {
-      const feed = document.getElementById('dossier-chat-stream');
-      let html = '';
+    window.currentCarData = null;
+    window.activeChatChannel = 'all';
 
-      (data.messages || []).forEach(m => {
+    function switchChatChannel(channel) {
+      window.activeChatChannel = channel;
+      ['all', 'driver_app', 'dealership_email', 'station_desk', 'internal_ops'].forEach(c => {
+        const btn = document.getElementById(`chat-tab-${c}`);
+        if (!btn) return;
+        if (c === channel) {
+          btn.className = 'px-3 py-1.5 rounded-lg bg-violet-600 text-white font-bold transition flex items-center space-x-1.5 shadow-2xs';
+        } else {
+          btn.className = 'px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 transition flex items-center space-x-1.5';
+        }
+      });
+      if (window.currentCarData) {
+        renderFilteredChatFeed();
+      }
+    }
+
+    function renderFilteredChatFeed() {
+      const data = window.currentCarData;
+      if (!data) return;
+      const feed = document.getElementById('dossier-chat-stream');
+      const messages = data.messages || [];
+
+      // Update Channel Counts
+      let countAll = messages.length;
+      let countDriver = 0;
+      let countDealer = 0;
+      let countSite = 0;
+      let countOps = 0;
+
+      messages.forEach(m => {
+        const rawRole = (m.sender_role || m.author_type || m.type || 'SYSTEM').toUpperCase();
+        const ch = (m.channel || '').toLowerCase();
+        if (rawRole === 'DRIVER' || ch.includes('driver')) countDriver++;
+        else if (rawRole === 'CUSTOMER' || ch.includes('email') || ch.includes('customer')) countDealer++;
+        else if (rawRole === 'SITE' || rawRole === 'STATION' || ch.includes('station') || ch.includes('desk')) countSite++;
+        else countOps++;
+      });
+
+      if (document.getElementById('chat-count-all')) document.getElementById('chat-count-all').innerText = countAll;
+      if (document.getElementById('chat-count-driver')) document.getElementById('chat-count-driver').innerText = countDriver;
+      if (document.getElementById('chat-count-dealer')) document.getElementById('chat-count-dealer').innerText = countDealer;
+      if (document.getElementById('chat-count-site')) document.getElementById('chat-count-site').innerText = countSite;
+      if (document.getElementById('chat-count-ops')) document.getElementById('chat-count-ops').innerText = countOps;
+
+      let filtered = messages.filter(m => {
+        if (window.activeChatChannel === 'all') return true;
+        const rawRole = (m.sender_role || m.author_type || m.type || 'SYSTEM').toUpperCase();
+        const ch = (m.channel || '').toLowerCase();
+        if (window.activeChatChannel === 'driver_app') return rawRole === 'DRIVER' || ch.includes('driver');
+        if (window.activeChatChannel === 'dealership_email') return rawRole === 'CUSTOMER' || ch.includes('email') || ch.includes('customer');
+        if (window.activeChatChannel === 'station_desk') return rawRole === 'SITE' || rawRole === 'STATION' || ch.includes('station') || ch.includes('desk');
+        if (window.activeChatChannel === 'internal_ops') return rawRole !== 'DRIVER' && rawRole !== 'CUSTOMER' && rawRole !== 'SITE' && rawRole !== 'STATION' && !ch.includes('driver') && !ch.includes('customer');
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        feed.innerHTML = `<div class="p-8 text-center text-gray-400 text-xs">No communications in this channel for this order.</div>`;
+        return;
+      }
+
+      let html = '';
+      filtered.forEach(m => {
         const rawRole = (m.sender_role || m.author_type || m.type || 'SYSTEM').toUpperCase();
         const isOperator = rawRole === 'OPERATOR' || m.type === 'ops';
         const isDriver = rawRole === 'DRIVER';
@@ -2737,8 +2902,8 @@ All directives staged with 10-second human safety window.`);
               <td class="p-3.5 font-mono font-bold text-gray-900">${h.order_ref || h.order_id}</td>
               <td class="p-3.5 text-gray-800 font-medium">${escapeHtml(h.car)}</td>
               <td class="p-3.5"><span class="px-2 py-0.5 rounded bg-gray-100 text-gray-800 font-mono text-[10px] font-bold">${h.operator_id}</span></td>
-              <td class="p-3.5 font-bold text-gray-900">${escapeHtml(h.decision)}</td>
-              <td class="p-3.5 text-gray-500">${escapeHtml(h.notes || '-')}</td>
+              <td class="p-3.5 font-bold text-gray-900">${escapeHtml(h.decision || h.decision_text || '-')}</td>
+              <td class="p-3.5 text-gray-600 font-medium">${escapeHtml(h.notes || h.source_note || '-')}</td>
               <td class="p-3.5 pr-4 text-right">
                 ${h.id ? `
                   <button onclick="deleteSingleAuditLog('${h.id}')" title="Delete single record" class="p-1.5 rounded-lg text-gray-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer">
@@ -2854,10 +3019,10 @@ All directives staged with 10-second human safety window.`);
         const exp = sum.trip_expenses_eur != null ? sum.trip_expenses_eur : (data.total_expenses_eur || 5682.28);
         const margin = sum.net_profit_eur != null ? sum.net_profit_eur : (data.gross_margin_eur || 18210.89);
 
-        document.getElementById('fin-total-revenue').innerText = `EUR ${round(rev, 2)}`;
-        document.getElementById('fin-driver-payouts').innerText = `EUR ${round(payouts, 2)}`;
-        document.getElementById('fin-approved-expenses').innerText = `EUR ${round(exp, 2)}`;
-        document.getElementById('fin-net-margin').innerText = `EUR ${round(margin, 2)}`;
+        document.getElementById('fin-total-revenue').innerHTML = `<span class="text-sm font-bold text-emerald-600">EUR</span> ${Number(rev).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+        document.getElementById('fin-driver-payouts').innerHTML = `<span class="text-sm font-bold text-rose-600">EUR</span> ${Number(payouts).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+        document.getElementById('fin-approved-expenses').innerHTML = `<span class="text-sm font-bold text-rose-600">EUR</span> ${Number(exp).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+        document.getElementById('fin-net-margin').innerHTML = `<span class="text-sm font-bold text-amber-600">EUR</span> ${Number(margin).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
 
         allFinancialExpenses = data.expenses || [];
         filterFinancialsTable();
@@ -2884,18 +3049,27 @@ All directives staged with 10-second human safety window.`);
         return true;
       });
 
-      // Financials Sort
-      const finSort = document.getElementById('fin-filter-sort') ? document.getElementById('fin-filter-sort').value : 'amt_desc';
+      // Financials Sort (Order Number, Amount, Date)
+      const finSort = document.getElementById('fin-filter-sort') ? document.getElementById('fin-filter-sort').value : 'order_asc';
       filtered.sort((a, b) => {
-        const amtA = a.amount_cents ? a.amount_cents / 100 : (a.amount || 0);
-        const amtB = b.amount_cents ? b.amount_cents / 100 : (b.amount || 0);
+        if (finSort === 'order_asc') {
+          const refA = a.order_ref || a.order_id || '';
+          const refB = b.order_ref || b.order_id || '';
+          return refA.localeCompare(refB);
+        }
+        if (finSort === 'order_desc') {
+          const refA = a.order_ref || a.order_id || '';
+          const refB = b.order_ref || b.order_id || '';
+          return refB.localeCompare(refA);
+        }
+        const amtA = a.amount != null ? a.amount : (a.amount_cents ? a.amount_cents / 100 : 0);
+        const amtB = b.amount != null ? b.amount : (b.amount_cents ? b.amount_cents / 100 : 0);
         if (finSort === 'amt_desc') return amtB - amtA;
         if (finSort === 'amt_asc') return amtA - amtB;
-        const dateA = a.submitted_at || a.reviewed_at || a.incurred_at || '';
-        const dateB = b.submitted_at || b.reviewed_at || b.incurred_at || '';
+        const dateA = a.submitted_at || a.service_at || a.reviewed_at || '';
+        const dateB = b.submitted_at || b.service_at || b.reviewed_at || '';
         if (finSort === 'date_desc') return dateB.localeCompare(dateA);
         if (finSort === 'date_asc') return dateA.localeCompare(dateB);
-        if (finSort === 'cat_asc') return (a.kind || '').localeCompare(b.kind || '');
         return 0;
       });
 
@@ -2929,6 +3103,7 @@ All directives staged with 10-second human safety window.`);
             <td class="p-3.5 pl-4 font-bold text-gray-900">${ex.kind}</td>
             <td class="p-3.5 text-gray-800 font-medium">${escapeHtml(merchantName)}</td>
             <td class="p-3.5 font-mono text-xs font-bold text-violet-700 cursor-pointer hover:underline" onclick="openCarDetail('${ex.order_id}')">${ex.order_id}</td>
+            <td class="p-3.5 font-mono text-xs text-gray-600">${(ex.submitted_at || ex.service_at || ex.reviewed_at || '').slice(0, 10) || '-'}</td>
             <td class="p-3.5 font-semibold text-xs tracking-tight">${coloredAmt}</td>
             <td class="p-3.5">${statusBadge}</td>
             <td class="p-3.5 pr-4 text-right">

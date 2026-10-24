@@ -138,6 +138,7 @@ def get_corridor_route(start: List[float], end: List[float], has_ferry: bool = F
 DATA: Dict[str, List[Dict[str, Any]]] = {}
 GLOBAL_AUDIT_LOGS: List[Dict[str, Any]] = []
 DELETED_HISTORY_IDS: set = set()
+LOGS_CLEARED_ALL: bool = False
 OPERATOR_ORDER_OVERRIDES: Dict[str, Dict[str, Any]] = {}
 SAVED_LOG_DIR = os.path.join(ROOT_DIR, "Saved log")
 os.makedirs(SAVED_LOG_DIR, exist_ok=True)
@@ -658,6 +659,26 @@ def get_addresses_for_order(order: Dict[str, Any]) -> Dict[str, Any]:
                 "notes": "Mandatory EU driver rest stop / fuel checkpoint"
             })
 
+    # Register intermediate stops into waypoints for corridor timeline
+    for st in intermediate_stops:
+        stop_status = "PENDING"
+        if transit_state == "DELIVERED":
+            stop_status = "COMPLETED"
+        elif transit_state == "IN_TRANSIT":
+            stop_status = "EN ROUTE / SCHEDULED"
+        
+        stop_wp = {
+            "name": st["name"],
+            "type": "waypoint",
+            "status": st.get("status") or stop_status,
+            "time": "Mid-Corridor Stop",
+            "notes": st.get("notes") or st.get("role", "Route Milestone")
+        }
+        if len(waypoints) > 1:
+            waypoints.insert(len(waypoints) - 1, stop_wp)
+        else:
+            waypoints.append(stop_wp)
+
     # Divide route into driven part and remaining part
     driven_geometry = []
     remaining_geometry = []
@@ -889,9 +910,10 @@ def get_order_attention(order_id: str) -> Dict[str, Any]:
             }
         elif override.get("state") == "HANDLED_PENDING_CONFIRMATION":
             return {
-                "needs_human": True,
+                "needs_human": False,
                 "category": "handled",
-                "severity": "warning",
+                "severity": "pending",
+                "state": "HANDLED_PENDING_CONFIRMATION",
                 "headline": f"Handled: {override.get('action', 'Action Dispatched')}",
                 "short_title": "Handled (Pending)",
                 "full_description": f"Operator authorized '{override.get('action', 'Action')}'. Staged in handled state until driver/vendor confirmation is received.",
@@ -1231,8 +1253,28 @@ def list_orders(
             if att["severity"] == "pending": return 2
             return 3
         results.sort(key=lambda r: (sort_priority(r), r["status"], r["reference"]))
-    elif sort_by == "reference":
-        results.sort(key=lambda r: r["reference"])
+    elif sort_by == "handled_first":
+        results.sort(key=lambda r: (0 if (r["attention"].get("severity") == "pending" or r["attention"].get("state") == "HANDLED_PENDING_CONFIRMATION" or r["attention"].get("category") == "handled") else 1, r["reference"]))
+    elif sort_by == "handled_last":
+        results.sort(key=lambda r: (1 if (r["attention"].get("severity") == "pending" or r["attention"].get("state") == "HANDLED_PENDING_CONFIRMATION" or r["attention"].get("category") == "handled") else 0, r["reference"]))
+    elif sort_by == "newest":
+        results.sort(key=lambda r: r.get("created_at") or "", reverse=True)
+    elif sort_by == "oldest":
+        results.sort(key=lambda r: r.get("created_at") or "")
+    elif sort_by == "eta_earliest":
+        def get_delivery_start(r):
+            tw = next((w for w in DATA.get("time_windows", []) if w.get("order_id") == r["id"] and "DELIVERY" in w.get("purpose", "")), None)
+            return tw.get("start_at") or tw.get("end_at") or "9999" if tw else "9999"
+        results.sort(key=get_delivery_start)
+    elif sort_by == "eta_latest":
+        def get_delivery_end(r):
+            tw = next((w for w in DATA.get("time_windows", []) if w.get("order_id") == r["id"] and "DELIVERY" in w.get("purpose", "")), None)
+            return tw.get("end_at") or tw.get("start_at") or "0000" if tw else "0000"
+        results.sort(key=get_delivery_end, reverse=True)
+    elif sort_by in ("order_number", "reference"):
+        results.sort(key=lambda r: r.get("reference") or r.get("id") or "")
+    elif sort_by == "alphabetical":
+        results.sort(key=lambda r: f"{r.get('vehicle', {}).get('make', '')} {r.get('vehicle', {}).get('model', '')}".lower())
     else:
         results.sort(key=lambda r: (r["status"], r["reference"]))
 
@@ -2095,9 +2137,10 @@ def link_support_inbox_to_order(thread_id: str, req: LinkInboxRequest):
 
 @app.post("/api/simulation/reset")
 def reset_simulation():
-    global OPERATOR_ORDER_OVERRIDES, GLOBAL_AUDIT_LOGS, DELETED_HISTORY_IDS
+    global OPERATOR_ORDER_OVERRIDES, GLOBAL_AUDIT_LOGS, DELETED_HISTORY_IDS, LOGS_CLEARED_ALL
     OPERATOR_ORDER_OVERRIDES.clear()
     DELETED_HISTORY_IDS.clear()
+    LOGS_CLEARED_ALL = False
     
     # Reset in-memory proposals & incidents
     for p in DATA.get("agent_proposals", []):
@@ -2124,72 +2167,75 @@ def get_global_history():
             l["id"] = f"audit-log-{idx}"
         if l.get("id") not in DELETED_HISTORY_IDS:
             combined.append(l)
-    
-    orders_map = {o["id"]: o for o in DATA.get("orders", [])}
-    order_items_map = {it["order_id"]: it for it in DATA.get("order_items", [])}
-    vehicles_map = {v["id"]: v for v in DATA.get("vehicles", [])}
 
-    for idx, ev in enumerate(DATA.get("operational_events", [])[:60]):
-        ev_id = ev.get("id") or f"ev-{ev.get('order_id')}-{ev.get('recorded_at')}-{idx}"
-        if ev_id in DELETED_HISTORY_IDS:
-            continue
-        oid = ev.get("order_id", "")
-        order = orders_map.get(oid)
-        ref = order.get("reference", oid) if order else oid
-        
-        # Vehicle name
-        car_name = "Fleet Vehicle"
-        if oid in order_items_map:
-            vid = order_items_map[oid].get("vehicle_id")
-            if vid in vehicles_map:
-                v = vehicles_map[vid]
-                car_name = f"{v.get('make')} {v.get('model')}"
+    if not LOGS_CLEARED_ALL:
+        orders_map = {o["id"]: o for o in DATA.get("orders", [])}
+        order_items_map = {it["order_id"]: it for it in DATA.get("order_items", [])}
+        vehicles_map = {v["id"]: v for v in DATA.get("vehicles", [])}
 
-        cmd = ev.get("command", "")
-        actor = ev.get("actor_id", "System")
-        
-        if not actor or actor == "system":
-            operator_label = "Automated Dispatch"
-            source_note = "Telemetry & Event Feed"
-        elif actor.startswith("drv-"):
-            operator_label = f"Driver ({actor})"
-            source_note = "Driver Mobile App"
-        elif actor.startswith("cus-"):
-            operator_label = f"Customer Desk ({actor})"
-            source_note = "Customer Dealership Portal"
-        elif actor == "ops-planning":
-            operator_label = "Planning Desk"
-            source_note = "Corridor Route Planning"
-        elif actor == "ops-support":
-            operator_label = "Support Desk"
-            source_note = "Customer Support Channel"
-        elif actor == "dispatch-agent":
-            operator_label = "Dispatch Agent"
-            source_note = "Autonomous Gig Matcher"
-        else:
-            operator_label = f"Operator ({actor})"
-            source_note = "Operations Desk Action"
+        for idx, ev in enumerate(DATA.get("operational_events", [])[:60]):
+            ev_id = ev.get("id") or f"ev-{ev.get('order_id')}-{ev.get('recorded_at')}-{idx}"
+            if ev_id in DELETED_HISTORY_IDS:
+                continue
+            oid = ev.get("order_id", "")
+            order = orders_map.get(oid)
+            ref = order.get("reference", oid) if order else oid
+            
+            # Vehicle name
+            car_name = "Fleet Vehicle"
+            if oid in order_items_map:
+                vid = order_items_map[oid].get("vehicle_id")
+                if vid in vehicles_map:
+                    v = vehicles_map[vid]
+                    car_name = f"{v.get('make')} {v.get('model')}"
 
-        decision_text = format_event_description(ev)
-        action_type = cmd.split(".")[0].upper() if "." in cmd else "OPERATION"
-        if action_type == "WORK_ITEM": action_type = "QUEUE_CHECK"
-        if action_type == "VEHICLE": action_type = "HANDOVER"
-        if action_type == "TRAVEL": action_type = "MARITIME"
+            cmd = ev.get("command", "")
+            actor = ev.get("actor_id", "System")
+            
+            if not actor or actor == "system":
+                operator_label = "Automated Dispatch"
+                source_note = "Telemetry & Event Feed"
+            elif actor.startswith("drv-"):
+                operator_label = f"Driver ({actor})"
+                source_note = "Driver Mobile App"
+            elif actor.startswith("cus-"):
+                operator_label = f"Customer Desk ({actor})"
+                source_note = "Customer Dealership Portal"
+            elif actor == "ops-planning":
+                operator_label = "Planning Desk"
+                source_note = "Corridor Route Planning"
+            elif actor == "ops-support":
+                operator_label = "Support Desk"
+                source_note = "Customer Support Channel"
+            elif actor == "dispatch-agent":
+                operator_label = "Corridor Controller"
+                source_note = "Control Room Operations"
+            else:
+                operator_label = f"Staff ({actor})"
+                source_note = "Operations Network"
 
-        combined.append({
-            "id": ev_id,
-            "order_id": oid,
-            "order_ref": ref,
-            "car": car_name,
-            "operator_id": operator_label,
-            "timestamp": ev.get("recorded_at", ""),
-            "action_type": action_type,
-            "decision": decision_text,
-            "notes": source_note
-        })
+            action_type = ev.get("event_type", "OPERATION")
+            decision_text = cmd if cmd else f"Event {action_type} logged"
+
+            combined.append({
+                "id": ev_id,
+                "order_id": oid,
+                "order_ref": ref,
+                "reference": ref,
+                "car": car_name,
+                "car_name": car_name,
+                "operator_id": operator_label,
+                "operator_name": operator_label,
+                "timestamp": ev.get("recorded_at", ""),
+                "action_type": action_type,
+                "decision": decision_text,
+                "decision_text": decision_text,
+                "notes": source_note,
+                "source_note": source_note
+            })
 
     combined.sort(key=lambda x: str(x.get("timestamp", "")), reverse=True)
-    return combined[:60]
+    return combined[:100]
 
 @app.post("/api/history/clear")
 def clear_history():
@@ -2239,14 +2285,29 @@ def get_financials(category: str = "all", status: str = "all", order_ref: str = 
             continue
         
         oid = e.get("order_id")
-        receipt_att = next((a for a in DATA.get("attachments", []) if a.get("order_id") == oid and a.get("kind") in ("EXPENSE_RECEIPT", "DELIVERY_PHOTOS", "CMR")), None)
+        # 1. Match specific receipt by related_record_id (expense id)
+        receipt_att = next((a for a in DATA.get("attachments", []) if a.get("related_record_id") == e.get("id")), None)
         proof_url = f"/attachments/{receipt_att['file_name']}" if receipt_att else None
 
         e_copy = dict(e)
-        amt_curr = round(e.get("amount_cents", 0) / 100, 2)
-        e_copy["amount"] = amt_curr
-        e_copy["amount_formatted"] = f"{amt_curr:.2f} {e.get('currency', 'EUR')}"
-        e_copy["vendor"] = "Driver Reimbursement" if e.get("payer") == "DRIVER" else "Authorized Provider"
+        raw_amt = e.get("amount_cents", 0) / 100
+        curr = e.get("currency", "EUR")
+        if curr == "DKK":
+            # 1 DKK ≈ 0.134 EUR (all converted to EUR as requested)
+            amt_eur = round(raw_amt * 0.134, 2)
+            e_copy["amount"] = amt_eur
+            e_copy["amount_formatted"] = f"{amt_eur:.2f} EUR"
+            e_copy["currency"] = "EUR"
+            e_copy["original_currency"] = "DKK"
+            e_copy["original_amount"] = raw_amt
+        else:
+            e_copy["amount"] = round(raw_amt, 2)
+            e_copy["amount_formatted"] = f"{raw_amt:.2f} EUR"
+            e_copy["currency"] = "EUR"
+
+        merchant_val = e.get("merchant") or e.get("vendor") or "Authorized Provider"
+        e_copy["vendor"] = merchant_val
+        e_copy["merchant"] = merchant_val
         e_copy["proof_url"] = proof_url
         e_copy["receipt_url"] = proof_url
         e_copy["has_file"] = bool(proof_url)
@@ -2464,15 +2525,16 @@ def export_history(req: Optional[Dict[str, Any]] = None):
         filename = f"audit_log_{ts}.json"
 
     file_path = os.path.join(SAVED_LOG_DIR, filename)
+    all_lines = get_global_history()
     with open(file_path, "w", encoding="utf-8") as f:
-        json.dump(GLOBAL_AUDIT_LOGS, f, indent=2, ensure_ascii=False)
+        json.dump(all_lines, f, indent=2, ensure_ascii=False)
     
     return {
         "status": "success",
         "file_name": filename,
         "saved_path": f"Saved log/{filename}",
-        "entry_count": len(GLOBAL_AUDIT_LOGS),
-        "data": GLOBAL_AUDIT_LOGS
+        "entry_count": len(all_lines),
+        "data": all_lines
     }
 
 @app.post("/api/history/log")
@@ -2501,24 +2563,30 @@ def delete_history(req: Optional[Dict[str, Any]] = None):
         GLOBAL_AUDIT_LOGS = [l for l in GLOBAL_AUDIT_LOGS if l.get("id") != entry_id]
         return {"status": "success", "message": f"Log entry {entry_id} removed", "remaining": len(GLOBAL_AUDIT_LOGS)}
     elif req and req.get("clear_all"):
+        global LOGS_CLEARED_ALL
+        LOGS_CLEARED_ALL = True
         cleared_count = len(GLOBAL_AUDIT_LOGS)
         GLOBAL_AUDIT_LOGS = []
-        return {"status": "success", "message": f"Cleared {cleared_count} audit log entries", "remaining": 0}
+        DELETED_HISTORY_IDS.clear()
+        return {"status": "success", "message": "All audit log entries cleared permanently", "remaining": 0}
     else:
         return {"status": "noop", "message": "Specify id or clear_all: true", "remaining": len(GLOBAL_AUDIT_LOGS)}
 
 @app.post("/api/history/import")
 def import_history(items: List[Dict[str, Any]]):
     """
-    Imports a JSON list of audit entries into GLOBAL_AUDIT_LOGS.
+    Imports a JSON list of audit entries into GLOBAL_AUDIT_LOGS and activates them.
     """
-    global GLOBAL_AUDIT_LOGS
+    global GLOBAL_AUDIT_LOGS, LOGS_CLEARED_ALL, DELETED_HISTORY_IDS
+    LOGS_CLEARED_ALL = True
+    GLOBAL_AUDIT_LOGS = []
+    DELETED_HISTORY_IDS.clear()
     imported = 0
     for item in items:
         if isinstance(item, dict):
             if "id" not in item:
-                item["id"] = f"log-{int(datetime.now().timestamp()*1000)}-{imported}"
-            GLOBAL_AUDIT_LOGS.insert(0, item)
+                item["id"] = f"import-{int(datetime.now().timestamp()*1000)}-{imported}"
+            GLOBAL_AUDIT_LOGS.append(item)
             imported += 1
     return {"status": "success", "imported": imported, "total": len(GLOBAL_AUDIT_LOGS)}
 
@@ -2535,14 +2603,18 @@ def resolve_inbox_thread(thread_id: str, req: Optional[Dict[str, Any]] = None):
             GLOBAL_AUDIT_LOGS.insert(0, {
                 "id": f"log-inbox-{thread_id}-{int(datetime.now().timestamp())}",
                 "order_id": t.get("order_id") or "SUPPORT",
-                "reference": t.get("order_ref") or t.get("subject", "Support Inquiry"),
+                "order_ref": t.get("order_ref") or "SUPPORT DESK",
+                "reference": t.get("order_ref") or "SUPPORT DESK",
+                "car": "Customer Support Desk",
                 "car_name": "Customer Support Desk",
                 "action_type": "SUPPORT_RESOLVE",
-                "decision_text": f"Resolved inquiry '{t.get('subject', 'Ticket')}'. Sender: {t.get('sender_name', 'Customer')}. Notes: {notes}",
+                "decision": f"Resolved Support Inquiry: {t.get('subject', 'Customer Query')}",
+                "decision_text": f"Resolved Support Inquiry: {t.get('subject', 'Customer Query')}",
+                "notes": notes,
+                "source_note": notes,
                 "operator_id": op_name,
                 "operator_name": op_name,
-                "timestamp": now_iso,
-                "source_note": "Support Inbox Resolution"
+                "timestamp": now_iso
             })
             return {"status": "success", "thread_id": thread_id, "new_status": "RESOLVED"}
     return {"status": "error", "message": "Thread not found"}
@@ -2558,14 +2630,18 @@ def postpone_inbox_thread(thread_id: str, req: Optional[Dict[str, Any]] = None):
             GLOBAL_AUDIT_LOGS.insert(0, {
                 "id": f"log-inbox-{thread_id}-{int(datetime.now().timestamp())}",
                 "order_id": t.get("order_id") or "SUPPORT",
-                "reference": t.get("order_ref") or t.get("subject", "Support Inquiry"),
+                "order_ref": t.get("order_ref") or "SUPPORT DESK",
+                "reference": t.get("order_ref") or "SUPPORT DESK",
+                "car": "Customer Support Desk",
                 "car_name": "Customer Support Desk",
                 "action_type": "SUPPORT_POSTPONE",
-                "decision_text": f"Postponed / snoozed inquiry '{t.get('subject', 'Ticket')}'. Notes: {notes}",
+                "decision": f"Postponed / Snoozed Inquiry: {t.get('subject', 'Customer Query')}",
+                "decision_text": f"Postponed / Snoozed Inquiry: {t.get('subject', 'Customer Query')}",
+                "notes": notes,
+                "source_note": notes,
                 "operator_id": op_name,
                 "operator_name": op_name,
-                "timestamp": now_iso,
-                "source_note": "Support Inbox Snooze"
+                "timestamp": now_iso
             })
             return {"status": "success", "thread_id": thread_id, "new_status": "POSTPONED"}
     return {"status": "error", "message": "Thread not found"}
