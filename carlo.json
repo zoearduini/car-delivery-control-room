@@ -1,0 +1,73 @@
+[
+  {
+    "id": "log-inbox-inbox-xfe9705b857ede735-1792865532",
+    "order_id": "SUPPORT",
+    "reference": "Support Inquiry",
+    "car_name": "Customer Support Desk",
+    "action_type": "SUPPORT_POSTPONE",
+    "decision_text": "Postponed / snoozed inquiry 'Ticket'. Notes: Postponed by operator carlo",
+    "operator_id": "carlo",
+    "operator_name": "carlo",
+    "timestamp": "2026-10-24T18:12:12.251655+00:00",
+    "source_note": "Support Inbox Snooze"
+  },
+  {
+    "id": "log-inbox-inbox-x41075bca6588a2d7-1792865528",
+    "order_id": "SUPPORT",
+    "reference": "Support Inquiry",
+    "car_name": "Customer Support Desk",
+    "action_type": "SUPPORT_RESOLVE",
+    "decision_text": "Resolved inquiry 'Ticket'. Sender: Customer. Notes: Postponed by operator carlo",
+    "operator_id": "carlo",
+    "operator_name": "carlo",
+    "timestamp": "2026-10-24T18:12:08.760196+00:00",
+    "source_note": "Support Inbox Resolution"
+  },
+  {
+    "id": "log-1792865483543",
+    "order_id": "ord-00603",
+    "order_ref": "CD-420603",
+    "car": "Volkswagen Golf",
+    "operator_id": "OP-042",
+    "operator_name": "OP-042",
+    "operator": "OP-042",
+    "timestamp": "2026-10-24T18:11:23.542966+00:00",
+    "action_type": "OPERATOR_DECISION",
+    "decision": "Rebook Finnlines 22:00 Departure (€85)",
+    "notes": "Finnlines 22:00 Travemünde sailing booked; driver assigned cabin.",
+    "summary": "Operator OP-042: Rebook Finnlines 22:00 Departure (€85) for Volkswagen Golf (CD-420603). Finnlines 22:00 Travemünde sailing booked; driver assigned cabin."
+  },
+  {
+    "order_id": "ord-00322",
+    "order_ref": "CD-420322",
+    "car": "Bentley Continental GT",
+    "operator_id": "OP-042",
+    "timestamp": "2026-10-21T08:15:00Z",
+    "action_type": "EMERGENCY_HALT",
+    "decision": "Driver Safe Stop Verified",
+    "notes": "Driver halted vehicle at Allertal West rest area. Telemetry frozen.",
+    "id": "audit-log-0"
+  },
+  {
+    "order_id": "ord-00299",
+    "order_ref": "CD-420299",
+    "car": "BMW M4",
+    "operator_id": "OP-014",
+    "timestamp": "2026-10-21T07:45:00Z",
+    "action_type": "FERRY_HOLD",
+    "decision": "Travemünde Ferry Rebooking Quoted",
+    "notes": "Finnlines crossing capacity reached. 22:00 sailing held for driver confirmation.",
+    "id": "audit-log-1"
+  },
+  {
+    "order_id": "ord-00458",
+    "order_ref": "CD-420458",
+    "car": "Audi RS 6",
+    "operator_id": "OP-007",
+    "timestamp": "2026-10-21T06:30:00Z",
+    "action_type": "DOCUMENT_HOLD",
+    "decision": "Seller Commercial Hold Escalated",
+    "notes": "Dealership missing signed release certificate. Direct dealer principal call placed.",
+    "id": "audit-log-2"
+  }
+]
