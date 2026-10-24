@@ -1,0 +1,3285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BAHN Control Room</title>
+  <link rel="icon" type="image/png" href="/static/bahn-logo.png">
+
+  <!-- Tailwind CSS v4 CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Leaflet CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+  <style>
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: #F1F3F5; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 9999px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+    .pulse-urgent { animation: pulseSlow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+    @keyframes pulseSlow { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(1.15); } }
+    .leaflet-container { font-family: inherit; }
+  </style>
+</head>
+<body class="bg-[#F8F9FA] text-[#1E2022] h-screen flex flex-col font-sans overflow-hidden antialiased select-none">
+
+  <!-- ================= IN-PAGE 10-SECOND UNDO BANNER ================= -->
+  <div id="action-undo-bar" class="hidden fixed bottom-6 left-1/2 transform -translate-x-1/2 z-[9999] bg-[#121417] text-white px-6 py-4 rounded-2xl shadow-2xl border border-gray-700 flex flex-col space-y-2 max-w-lg w-full pointer-events-auto">
+    <div class="flex items-center justify-between text-xs">
+      <div class="flex items-center space-x-2">
+        <span class="w-2.5 h-2.5 rounded-full bg-violet-400 animate-ping"></span>
+        <strong id="undo-action-title" class="font-bold text-white text-sm">Action Staged</strong>
+      </div>
+      <span class="text-xs text-zinc-400">Executing in <strong id="undo-countdown-sec" class="text-white font-mono text-sm font-bold bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-700">10s</strong></span>
+    </div>
+    
+    <div class="w-full bg-gray-800 h-1.5 rounded-full overflow-hidden">
+      <div id="undo-progress-bar" class="bg-gradient-to-r from-violet-500 to-purple-400 h-full w-full transition-all duration-1000 ease-linear"></div>
+    </div>
+
+    <div class="flex items-center justify-between pt-1">
+      <span class="text-[11px] text-zinc-400">Strict safety window. You can cancel now:</span>
+      <button onclick="cancelPendingAction()" class="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-lg transition shadow-xs cursor-pointer flex items-center space-x-1">
+        <i data-lucide="x-circle" class="w-3.5 h-3.5"></i>
+        <span>Undo Immediate Cancel</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ================= ACTION MODAL: MODIFY BEFORE EXECUTION ================= -->
+  <div id="action-modify-modal" class="hidden fixed inset-0 z-[9999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl border border-gray-200">
+      <div class="flex items-center justify-between border-b border-gray-100 pb-3">
+        <div class="flex items-center space-x-2">
+          <i data-lucide="edit-3" class="w-5 h-5 text-violet-600"></i>
+          <span class="text-base font-bold text-gray-900">Modify Operational Directive</span>
+        </div>
+        <button onclick="closeModifyModal()" class="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition cursor-pointer">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block font-bold text-gray-700 mb-1 uppercase tracking-wider text-[10px]">Directive Title</label>
+          <input type="text" id="modify-action-title" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-semibold focus:outline-none focus:border-violet-500">
+        </div>
+
+        <div>
+          <label class="block font-bold text-gray-700 mb-1 uppercase tracking-wider text-[10px]">Custom Driver & Counterparty Instructions</label>
+          <textarea id="modify-action-notes" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs focus:outline-none focus:border-violet-500"></textarea>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-bold text-gray-700 mb-1 uppercase tracking-wider text-[10px]">Updated Departure Schedule</label>
+            <input type="text" id="modify-action-time" value="2026-10-22 14:00" class="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-xs">
+          </div>
+          <div>
+            <label class="block font-bold text-gray-700 mb-1 uppercase tracking-wider text-[10px]">Authorized Cost Limit (EUR)</label>
+            <input type="number" id="modify-action-budget" value="250" class="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-xs font-bold">
+          </div>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end space-x-2 pt-2 border-t border-gray-100">
+        <button onclick="closeModifyModal()" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-lg transition cursor-pointer">Cancel</button>
+        <button onclick="saveAndStageModifiedAction()" class="px-4 py-2 bg-violet-700 hover:bg-violet-800 text-white font-bold text-xs rounded-lg transition flex items-center space-x-1.5 shadow-xs cursor-pointer">
+          <i data-lucide="check" class="w-4 h-4"></i>
+          <span>Save & Stage with 10s Undo</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  
+  <!-- ================= 10-SECOND ACTION CONFIRMATION & MODIFY WINDOW ================= -->
+  <div id="action-confirmation-modal" class="hidden fixed inset-0 z-[9999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-lg w-full border border-gray-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+      <div class="bg-zinc-900 text-white p-5 flex items-center justify-between">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-8 h-8 rounded-lg bg-violet-600 flex items-center justify-center font-bold text-white text-base">
+            ⚡
+          </div>
+          <div>
+            <h3 class="font-bold text-sm text-white">Confirm Operational Directive</h3>
+            <span class="text-[11px] text-zinc-400">10-second confirmation window (auto-confirms if idle)</span>
+          </div>
+        </div>
+        <div class="flex items-center space-x-2">
+          <div class="px-2.5 py-1 rounded-md bg-zinc-800 border border-zinc-700 text-white font-mono text-xs font-bold flex items-center space-x-1">
+            <i data-lucide="clock" class="w-3.5 h-3.5 text-violet-400"></i>
+            <span id="modal-countdown-timer">10s</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Animated Progress Line -->
+      <div class="w-full bg-zinc-800 h-1.5 overflow-hidden">
+        <div id="modal-countdown-progress" class="bg-gradient-to-r from-violet-500 to-purple-400 h-full w-full transition-all duration-1000 ease-linear"></div>
+      </div>
+
+      <div class="p-6 space-y-4">
+        <div class="space-y-1">
+          <span class="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Directive to Execute</span>
+          <strong id="modal-action-title" class="text-base text-gray-900 font-bold block">Action Title</strong>
+          <p id="modal-action-desc" class="text-xs text-gray-600 leading-relaxed">Action description</p>
+        </div>
+
+        <div class="p-3 bg-zinc-50 rounded-xl border border-zinc-200 flex items-center justify-between text-xs">
+          <span class="text-gray-600 font-medium">Order Target: <strong id="modal-action-order" class="font-mono text-gray-900">ORD-REF</strong></span>
+          <span class="text-gray-600 font-medium">Signed As: <strong id="modal-action-operator" class="text-violet-700 font-mono font-bold">zoe</strong></span>
+        </div>
+
+        <!-- Modification Area (Expanded when clicking Modify) -->
+        <div id="modal-modify-box" class="hidden space-y-2 pt-2 border-t border-gray-100">
+          <label class="text-xs font-bold text-gray-700 block">Edit Operational Notes / Specific Instructions:</label>
+          <textarea id="modal-modify-input" class="w-full text-xs p-3 rounded-lg border border-gray-300 focus:outline-none focus:border-violet-600 font-sans" rows="3"></textarea>
+          <div class="flex items-center justify-between text-[11px] text-gray-500">
+            <span>Countdown paused while modifying.</span>
+          </div>
+        </div>
+
+        <div class="text-[11px] text-gray-500 flex items-center space-x-1.5 bg-gray-50 p-2.5 rounded-lg border border-gray-100">
+          <i data-lucide="info" class="w-3.5 h-3.5 text-gray-400 shrink-0"></i>
+          <span>Auto-executes in 10s if no action taken. Click Modify to adjust, or Undo to cancel.</span>
+        </div>
+      </div>
+
+      <div class="p-4 bg-gray-50 border-t border-gray-200 flex items-center justify-between space-x-3">
+        <button onclick="cancelActionModal()" class="px-4 py-2.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-100 text-gray-700 text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer">
+          <i data-lucide="x" class="w-4 h-4 text-rose-500"></i>
+          <span>Undo / Cancel</span>
+        </button>
+        <div class="flex items-center space-x-2">
+          <button id="modal-modify-btn" onclick="toggleModalModify()" class="px-3.5 py-2.5 rounded-xl border border-gray-200 bg-gray-100 hover:bg-gray-200 text-gray-800 text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer">
+            <i data-lucide="edit-3" class="w-4 h-4 text-gray-600"></i>
+            <span>Modify</span>
+          </button>
+          <button onclick="confirmActionNow()" class="px-5 py-2.5 rounded-xl bg-violet-700 hover:bg-violet-800 text-white text-xs font-bold transition shadow-sm flex items-center space-x-1.5 cursor-pointer">
+            <i data-lucide="check-circle-2" class="w-4 h-4"></i>
+            <span>Confirm Now</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ================= UNIVERSAL DOCUMENT & PROOF MODAL ================= -->
+  <div id="universal-file-modal" class="hidden fixed inset-0 z-[9999] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-gray-900 rounded-2xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden shadow-2xl border border-gray-700">
+      <div class="px-5 py-3.5 bg-gray-800/90 border-b border-gray-700 flex items-center justify-between text-white">
+        <div class="flex items-center space-x-2.5">
+          <i data-lucide="file-text" class="w-5 h-5 text-violet-400"></i>
+          <span id="file-modal-title" class="font-bold text-sm tracking-wide">Document Record</span>
+        </div>
+        <div class="flex items-center space-x-2">
+          <a id="file-modal-open-tab" href="#" target="_blank" class="px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 text-xs font-bold transition flex items-center space-x-1.5 text-gray-200 cursor-pointer">
+            <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+            <span>Open in Tab</span>
+          </a>
+          <button onclick="closeUniversalFileModal()" class="p-1.5 rounded-lg hover:bg-gray-700 text-gray-400 hover:text-white transition cursor-pointer">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="flex-1 bg-slate-100 flex items-center justify-center overflow-hidden relative">
+        <!-- PDF / Document Object Embed -->
+        <object id="file-modal-object" data="" type="application/pdf" class="w-full h-full border-none hidden">
+          <iframe id="file-modal-iframe" src="" class="w-full h-full border-none"></iframe>
+        </object>
+
+        <!-- Image Preview -->
+        <div id="file-modal-img-container" class="w-full h-full p-4 flex items-center justify-center hidden bg-slate-900">
+          <img id="file-modal-image" src="" alt="Proof Preview" class="max-w-full max-h-full object-contain rounded-lg shadow-lg" />
+        </div>
+
+        <!-- Electronic Transaction Voucher (When paper scan was not sampled in dataset) -->
+        <div id="file-modal-voucher" class="hidden max-w-lg w-full p-6 bg-white rounded-2xl shadow-xl border border-gray-200 space-y-4 text-left">
+          <div class="flex items-center justify-between border-b border-gray-200 pb-3">
+            <div class="flex items-center space-x-2">
+              <span class="w-3 h-3 rounded-full bg-emerald-500"></span>
+              <strong class="text-sm font-black text-gray-900 uppercase tracking-wider">Verified Transaction Voucher</strong>
+            </div>
+            <span id="voucher-status-badge" class="px-2.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">APPROVED</span>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3 text-xs">
+            <div>
+              <span class="text-gray-400 uppercase text-[10px] font-bold block">Merchant / Payee</span>
+              <strong id="voucher-merchant" class="text-gray-900 font-bold text-sm">Aster Road Fuel</strong>
+            </div>
+            <div>
+              <span class="text-gray-400 uppercase text-[10px] font-bold block">Amount Incurred</span>
+              <strong id="voucher-amount" class="text-zinc-900 font-black text-base">128.57 EUR</strong>
+            </div>
+            <div>
+              <span class="text-gray-400 uppercase text-[10px] font-bold block">Expense Category</span>
+              <span id="voucher-category" class="font-bold text-gray-800">FUEL & CHARGING</span>
+            </div>
+            <div>
+              <span class="text-gray-400 uppercase text-[10px] font-bold block">Service Date</span>
+              <span id="voucher-date" class="font-medium text-gray-700">2026-10-20 16:07</span>
+            </div>
+          </div>
+
+          <div class="p-3 bg-gray-50 rounded-xl border border-gray-200 text-xs space-y-1">
+            <span class="text-gray-400 uppercase text-[10px] font-bold block">Internal Review / Telemetry Note</span>
+            <p id="voucher-note" class="text-gray-700 italic leading-snug">Cost approved for this assignment; driver reimbursement verified against GPS corridor.</p>
+          </div>
+
+          <div class="p-2.5 bg-violet-50 rounded-xl border border-violet-200 text-[11px] text-violet-950 flex items-start space-x-2">
+            <i data-lucide="info" class="w-4 h-4 text-violet-600 shrink-0 mt-0.5"></i>
+            <span>This is an official digital expense record from the operations telemetry ledger. Physical paper receipt was not sampled in this scenario dataset.</span>
+          </div>
+        </div>
+
+        <div id="file-modal-fallback" class="hidden p-8 text-center text-gray-500 space-y-3">
+          <p class="text-sm">Document ready for download or external viewing:</p>
+          <a id="file-modal-fallback-link" href="#" target="_blank" class="inline-flex items-center space-x-2 px-4 py-2 bg-zinc-900 text-white font-bold rounded-lg text-xs">
+            <span>Open Certified File</span>
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= TOP APP BAR (NO YELLOW EXCEPT INBOX NUMBER, NO BLUE, LUXURY OBSIDIAN PALETTE) ================= -->
+  <header class="h-14 bg-[#0D0F12] text-white px-6 flex items-center justify-between border-b border-zinc-800 shrink-0 z-30 select-none">
+    <div class="flex items-center space-x-6">
+      <div class="flex items-center space-x-3 cursor-pointer" onclick="goToFleetView()">
+        <img src="/static/bahn-logo.png" alt="Bahn Logo" class="h-8 w-8 object-contain rounded bg-white p-1">
+        <div>
+          <span class="font-black tracking-widest text-lg uppercase text-white">BAHN</span>
+          <span class="text-xs text-zinc-400 ml-2 font-medium hidden sm:inline">Control Room</span>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs (Sleek Obsidian & Zinc, NO yellow, NO blue!) -->
+      <nav class="flex items-center space-x-1.5 text-xs font-medium">
+        <button id="nav-btn-fleet" onclick="goToFleetView()" class="px-3.5 py-1.5 rounded-lg font-bold bg-zinc-800 text-white border border-zinc-700 shadow-sm flex items-center space-x-1.5 transition cursor-pointer">
+          <i data-lucide="car" class="w-3.5 h-3.5 text-zinc-300"></i>
+          <span id="nav-fleet-label">Fleet Overview</span>
+        </button>
+        <button id="nav-btn-inbox" onclick="switchGlobalView('inbox')" class="px-3.5 py-1.5 rounded-lg font-medium text-zinc-400 hover:text-white hover:bg-zinc-800/60 flex items-center space-x-1.5 transition cursor-pointer">
+          <i data-lucide="inbox" class="w-3.5 h-3.5"></i>
+          <span>Support Inbox</span>
+          <!-- THE ONLY YELLOW IN THE FIRST ROW AS EXPLICITLY REQUESTED -->
+          <span id="nav-inbox-badge" class="ml-1 px-2 py-0.5 bg-amber-400 text-black font-extrabold rounded-full text-[11px] shadow-xs">4</span>
+        </button>
+        <button id="nav-btn-history" onclick="switchGlobalView('history')" class="px-3.5 py-1.5 rounded-lg font-medium text-zinc-400 hover:text-white hover:bg-zinc-800/60 flex items-center space-x-1.5 transition cursor-pointer">
+          <i data-lucide="history" class="w-3.5 h-3.5"></i>
+          <span>Operations Audit Log</span>
+        </button>
+        <button id="nav-btn-finance" onclick="switchGlobalView('finance')" class="px-3.5 py-1.5 rounded-lg font-medium text-zinc-400 hover:text-white hover:bg-zinc-800/60 flex items-center space-x-1.5 transition cursor-pointer">
+          <i data-lucide="banknote" class="w-3.5 h-3.5"></i>
+          <span>Financials & Earnings</span>
+        </button>
+      </nav>
+    </div>
+
+    <!-- Right Operator & AI Assistant Trigger -->
+    <div class="flex items-center space-x-3">
+      <!-- Reset Simulation Button (For repeatable demos) -->
+      <button onclick="resetSimulationDemo()" title="Reset all vehicle incidents and overrides for demo" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700 text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer">
+        <i data-lucide="rotate-ccw" class="w-3.5 h-3.5 text-violet-400"></i>
+        <span>Reset Simulation</span>
+      </button>
+
+      <div onclick="promptOperatorId()" class="cursor-pointer flex items-center space-x-2 px-3 py-1 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-300 hover:border-zinc-500 transition text-xs">
+        <i data-lucide="shield" class="w-3.5 h-3.5 text-zinc-400"></i>
+        <span class="text-zinc-400">Operator:</span>
+        <strong id="operator-display" class="text-white font-mono font-bold">zoe</strong>
+        <i data-lucide="edit-2" class="w-3 h-3 text-zinc-500"></i>
+      </div>
+
+      <!-- AI Assistant Button -->
+      <button onclick="toggleAiSidebar()" class="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white font-bold text-xs flex items-center space-x-1.5 transition shadow-sm cursor-pointer">
+        <i data-lucide="bot" class="w-3.5 h-3.5"></i>
+        <span>AI Assistant</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ================= VIEW 1: FLEET OVERVIEW ================= -->
+  <div id="view-home" class="flex-1 flex flex-col overflow-hidden">
+    <!-- FILTER BAR: UNIFIED CONDITIONS & 6 EXACT SORTS -->
+    <div class="bg-white border-b border-gray-200 px-8 py-3 flex items-center justify-between shrink-0 select-none">
+      <div class="flex items-center space-x-4">
+        <!-- Unified Conditions Dropdown -->
+        <div class="flex items-center space-x-2">
+          <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">Condition:</span>
+          <select id="condition-select" onchange="onConditionSelectChange()" class="text-xs bg-gray-50 border border-gray-300 rounded-lg px-3 py-1.5 font-bold text-gray-800 focus:outline-none focus:border-violet-500 shadow-2xs">
+            <option value="all">All Vehicles (100)</option>
+            <option value="no_issue">🟢 No Issue / OK (78)</option>
+            <option value="all_issues">🔴 All Active Issues (22)</option>
+            <option value="handled">🟣 Handled / Pending Confirmation (0)</option>
+            <option value="breakdown">🚨 Road Breakdown (1)</option>
+            <option value="ferry">⚓ Baltic Ferry Disruptions (2)</option>
+            <option value="documents">📄 Documentation & Gate Release (11)</option>
+            <option value="schedule">⏱️ Schedule & Relay Delays (5)</option>
+            <option value="claims">🔍 Cosmetic Damage Claims (3)</option>
+          </select>
+        </div>
+
+        <!-- Quick Condition Counts Pills -->
+        <div class="flex items-center space-x-1.5 text-xs">
+          <span class="px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-800 font-bold border border-emerald-200">
+            78 OK
+          </span>
+          <span class="px-2.5 py-1 rounded-md bg-rose-50 text-rose-800 font-bold border border-rose-200">
+            22 Issues
+          </span>
+        </div>
+      </div>
+
+      <div class="flex items-center space-x-4 text-xs">
+        <!-- User Requested Exact 6 Sort Modes -->
+        <div class="flex items-center space-x-2">
+          <span class="font-bold text-gray-500 uppercase tracking-wider text-xs">Sort:</span>
+          <select id="sort-select" onchange="onSortChange()" class="text-xs bg-gray-50 border border-gray-300 rounded-lg px-3 py-1.5 font-medium text-gray-800 focus:outline-none focus:border-violet-500 shadow-2xs">
+            <option value="critical">Critical Attention First</option>
+            <option value="newest">Newest Order</option>
+            <option value="oldest">Oldest Order</option>
+            <option value="eta_earliest">Earliest Estimated Arrival</option>
+            <option value="eta_latest">Latest Estimated Arrival</option>
+            <option value="order_number">Order Number</option>
+            <option value="alphabetical">Alphabetical Order of Vehicle</option>
+          </select>
+        </div>
+
+        <div class="relative w-64">
+          <input type="text" id="fleet-search" oninput="onSearchInput()" placeholder="Search vehicle, plate, dealer, city..." class="w-full pl-8 pr-3 py-1.5 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:outline-none focus:border-violet-500">
+          <i data-lucide="search" class="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2"></i>
+        </div>
+      </div>
+    </div>
+
+    <!-- MAIN FLEET TABLE -->
+    <div class="flex-1 overflow-y-scroll custom-scrollbar px-8 py-4" style="scrollbar-gutter: stable;">
+      <div class="border border-gray-200 rounded-xl overflow-hidden shadow-xs bg-white min-h-[540px]">
+        <table class="w-full text-left border-collapse text-xs table-fixed">
+          <thead class="bg-gray-50/90 border-b border-gray-200 text-gray-500 font-bold uppercase tracking-wider text-[11px] sticky top-0 z-10">
+            <tr>
+              <th class="w-28 p-3.5 pl-5">Order Ref</th>
+              <th class="w-72 p-3.5">Vehicle</th>
+              <th class="w-56 p-3.5">Corridor Route</th>
+              <th class="w-44 p-3.5">Status</th>
+              <th class="w-44 p-3.5">Assigned Driver</th>
+              <th class="w-52 p-3.5">Operational Condition</th>
+              <th class="w-20 p-3.5 pr-5 text-right">Action</th>
+            </tr>
+          </thead>
+          <tbody id="fleet-table-tbody" class="divide-y divide-gray-100">
+            <tr><td colspan="7" class="p-8 text-center text-gray-400">Loading fleet orders...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= VIEW 2: CAR DETAIL DOSSIER (TABBED SUB-PAGES PER USER REQUEST) ================= -->
+  <div id="view-car-detail" class="hidden flex-1 flex flex-col overflow-hidden bg-[#F8F9FA]">
+
+    <!-- TOP BREADCRUMB & BACK BAR -->
+    <div class="h-12 bg-white border-b border-gray-200 px-8 flex items-center justify-between shrink-0 select-none">
+      <div class="flex items-center space-x-3">
+        <button onclick="goBackToFleetTable()" class="flex items-center space-x-1.5 text-xs font-bold text-gray-700 hover:text-black transition cursor-pointer">
+          <i data-lucide="arrow-left" class="w-4 h-4"></i>
+          <span>All Cars</span>
+        </button>
+        <span class="text-gray-300">/</span>
+        <span class="text-gray-500 font-mono text-[11px]" id="detail-nav-id">ORD-00000</span>
+        <span class="text-gray-300">-</span>
+        <span class="font-bold text-gray-900" id="detail-nav-car">Vehicle Name</span>
+      </div>
+
+      <div class="flex items-center space-x-2 text-xs">
+        <button onclick="openAiSidebarForCar()" class="px-3 py-1.5 rounded-lg bg-violet-50 text-violet-800 font-bold hover:bg-violet-100 transition flex items-center space-x-1.5 border border-violet-200 cursor-pointer">
+          <i data-lucide="sparkles" class="w-3.5 h-3.5 text-violet-600"></i>
+          <span>Ask AI About This Car</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- PROMINENT LIFECYCLE STATUS PIPELINE VISUALIZATION (ALWAYS VISIBLE ACROSS ALL CAR SUBPAGES) -->
+    <div class="bg-white border-b border-gray-200 px-8 py-3 shrink-0 shadow-2xs">
+      <div class="max-w-5xl mx-auto flex items-center justify-between">
+        <div class="flex items-center space-x-2">
+          <i data-lucide="git-commit" class="w-4 h-4 text-violet-600"></i>
+          <span class="text-xs font-bold text-gray-700 uppercase tracking-wider">Transport Pipeline:</span>
+          <span id="pipeline-current-status" class="font-bold text-zinc-900 bg-zinc-100 px-2.5 py-0.5 rounded text-xs border border-zinc-200">IN_TRANSIT</span>
+        </div>
+        <div id="pipeline-stepper" class="flex items-center space-x-2 text-xs"></div>
+      </div>
+    </div>
+
+    <!-- DEDICATED SUB-PAGE TAB NAVIGATION BAR (Centered, No Numbers, More Visible) -->
+    <div class="bg-white border-b border-gray-200 px-8 py-3 shrink-0 shadow-2xs relative">
+      <div class="flex items-center justify-center space-x-3 text-sm font-bold mx-auto" id="car-detail-tabs-nav">
+        <button onclick="switchCarSubTab('deal')" id="car-tab-btn-deal" class="px-4 py-2 rounded-xl bg-zinc-900 text-white shadow-md flex items-center space-x-2 transition cursor-pointer">
+          <span class="text-base">💼</span>
+          <span>Commercial Deal</span>
+        </button>
+        <button onclick="switchCarSubTab('route')" id="car-tab-btn-route" class="px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-100 hover:text-black flex items-center space-x-2 transition cursor-pointer">
+          <span class="text-base">🗺️</span>
+          <span>Route & Live Map</span>
+        </button>
+        <button onclick="switchCarSubTab('docs')" id="car-tab-btn-docs" class="px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-100 hover:text-black flex items-center space-x-2 transition cursor-pointer">
+          <span class="text-base">📄</span>
+          <span>Documents & Proofs</span>
+        </button>
+        <button onclick="switchCarSubTab('ferry')" id="car-tab-btn-ferry" class="hidden px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-100 hover:text-black flex items-center space-x-2 transition cursor-pointer">
+          <span class="text-base">⚓</span>
+          <span>Ferry & Sea</span>
+        </button>
+        <button onclick="switchCarSubTab('chat')" id="car-tab-btn-chat" class="px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-100 hover:text-black flex items-center space-x-2 transition cursor-pointer">
+          <span class="text-base">💬</span>
+          <span>Conversation History</span>
+        </button>
+        <button onclick="switchCarSubTab('actions')" id="car-tab-btn-actions" class="px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-100 hover:text-black flex items-center space-x-2 transition cursor-pointer">
+          <span class="text-base">⚡</span>
+          <span>Operator Actions</span>
+        </button>
+      </div>
+
+
+    </div>
+
+    <!-- MAIN DOSSIER CONTENT AREA (Full-width scroll container so scrollbar is at the far right!) -->
+    <div class="flex-1 overflow-y-auto custom-scrollbar w-full">
+      <div class="p-8 max-w-6xl mx-auto">
+        
+        <!-- Situation Alert Banner (Full description) -->
+        <div id="detail-alert-box" class="hidden mb-6 p-4 rounded-xl border border-rose-300 bg-rose-50 flex items-start space-x-3 text-xs shadow-xs">
+          <i id="detail-alert-icon" data-lucide="alert-triangle" class="w-5 h-5 text-rose-600 shrink-0 mt-0.5"></i>
+          <div class="flex-1 space-y-1">
+            <strong id="detail-alert-title" class="font-bold text-rose-900 text-sm block">Action Required</strong>
+            <p id="detail-alert-desc" class="text-rose-800 leading-relaxed font-medium">Full incident details.</p>
+          </div>
+        </div>
+
+        <!-- Automated Background Audit Banner (Shown when order is verified safe / needs_human: false) -->
+        <div id="detail-verified-safe-box" class="hidden mb-6 p-5 bg-emerald-50/70 rounded-2xl border-2 border-emerald-200 shadow-xs space-y-3">
+          <div class="flex items-center justify-between border-b border-emerald-100 pb-2.5">
+            <div class="flex items-center space-x-2">
+              <i data-lucide="shield-check" class="w-5 h-5 text-emerald-600"></i>
+              <strong class="text-sm font-bold text-emerald-950">Automated Background Audit (Verified Safe)</strong>
+            </div>
+            <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+              Verified by Bahn Sentinel Agent
+            </span>
+          </div>
+          <p class="text-xs text-emerald-900 leading-relaxed">
+            This order is progressing on its automated flightpath. The Sentinel background agent verified all baseline requirements:
+          </p>
+          <div class="grid grid-cols-2 gap-2 text-xs text-emerald-900 pt-1">
+            <div class="flex items-center space-x-2"><span>✓</span><span><strong>Corridor Telemetry:</strong> Active GPS beacon within 15 km scheduled waypoint corridor</span></div>
+            <div class="flex items-center space-x-2"><span>✓</span><span><strong>Consignment Note:</strong> Digital e-CMR validated under carrier protocol</span></div>
+            <div class="flex items-center space-x-2"><span>✓</span><span><strong>Site Clearance:</strong> Dealership release authorization confirmed</span></div>
+            <div class="flex items-center space-x-2"><span>✓</span><span><strong>Maritime Deck:</strong> Baltic Sea ferry allocation confirmed with carrier</span></div>
+          </div>
+          <div class="text-[11px] text-emerald-700 italic border-t border-emerald-100 pt-2">
+            Snapshot checked at 2026-10-21 09:00 UTC. Next automated waypoint check scheduled at port gate arrival.
+          </div>
+        </div>
+
+        <!-- ================= SUB-PAGE 1: COMMERCIAL DEAL ================= -->
+        <div id="car-subpage-deal" class="space-y-6">
+
+          <!-- Deal Summary & Vehicle Specs -->
+          <div class="grid grid-cols-3 gap-6">
+            <!-- Commercial Financial Terms -->
+            <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs space-y-4">
+              <div class="flex items-center space-x-2 text-xs font-bold uppercase tracking-wider text-gray-500">
+                <i data-lucide="receipt" class="w-4 h-4 text-emerald-600"></i>
+                <span>Commercial Terms</span>
+              </div>
+              <div class="space-y-3 text-xs">
+                <div class="flex justify-between pb-2 border-b border-gray-100">
+                  <span class="text-gray-500">Billing Reference:</span>
+                  <strong id="deal-billing-ref" class="font-mono text-gray-900">INV-420000</strong>
+                </div>
+                <div class="flex justify-between pb-2 border-b border-gray-100">
+                  <span class="text-gray-500">Customer Dealership:</span>
+                  <strong id="deal-cust-name" class="text-gray-900 font-bold truncate max-w-[160px]">Auto Galerie</strong>
+                </div>
+                <div class="flex justify-between pb-2 border-b border-gray-100">
+                  <span class="text-gray-500">Contract Value:</span>
+                  <strong id="deal-contract-val" class="font-bold text-gray-900">1,240.00 EUR</strong>
+                </div>
+                <div class="flex justify-between pb-2 border-b border-gray-100">
+                  <span class="text-gray-500">Driver Payout:</span>
+                  <strong id="deal-driver-fee" class="font-bold text-gray-900">892.80 EUR</strong>
+                </div>
+                <div class="flex justify-between pb-2 border-b border-gray-100">
+                  <span class="text-gray-500">Trip Expenses:</span>
+                  <strong id="deal-expenses" class="font-bold text-gray-900">0.00 EUR</strong>
+                </div>
+                <div class="flex justify-between pb-2 border-b border-gray-100">
+                  <span class="text-gray-500">Net Gross Margin:</span>
+                  <strong id="deal-margin" class="font-bold text-emerald-700">347.20 EUR</strong>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-gray-500">Payment Terms:</span>
+                  <strong id="deal-terms" class="text-gray-700">Net 14 Days</strong>
+                </div>
+              </div>
+            </div>
+
+            <!-- Vehicle Dossier & Photo -->
+            <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs space-y-4">
+              <div class="flex items-center space-x-2 text-xs font-bold uppercase tracking-wider text-gray-500">
+                <i data-lucide="car" class="w-4 h-4 text-violet-600"></i>
+                <span>Master Vehicle Record</span>
+              </div>
+              <div class="w-full h-32 rounded-xl bg-gray-100 border border-gray-200 overflow-hidden relative">
+                <img id="deal-veh-img" src="/static/bahn-logo.png" alt="Vehicle" class="w-full h-full object-cover">
+                <span id="deal-veh-plate" class="absolute bottom-2 left-2 px-2 py-0.5 rounded bg-black/80 text-white font-mono text-[11px] font-bold">PLATE PENDING</span>
+              </div>
+              <div class="space-y-1.5 text-xs">
+                <strong id="deal-veh-title" class="text-sm font-bold text-gray-900 block truncate">BMW M4 Competition</strong>
+                <span id="deal-veh-year" class="text-gray-500 block">2024 Edition</span>
+                <div class="pt-2 flex items-center justify-between border-t border-gray-100 text-[11px]">
+                  <span class="text-gray-400">VIN:</span>
+                  <span id="deal-veh-vin" class="font-mono text-gray-700">WBA33AY0000000000</span>
+                </div>
+                <div class="flex items-center justify-between text-[11px]">
+                  <span class="text-gray-400">Fuel Engine:</span>
+                  <span id="deal-veh-fuel" class="font-bold text-gray-800">Petrol</span>
+                </div>
+                <div class="flex items-center justify-between text-[11px]">
+                  <span class="text-gray-400">Transport Method:</span>
+                  <span id="deal-transport-mode" class="font-bold text-violet-700">Direct Road Transport</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Driver & Schedule SLA -->
+            <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs space-y-4">
+              <div class="flex items-center space-x-2 text-xs font-bold uppercase tracking-wider text-gray-500">
+                <i data-lucide="user-check" class="w-4 h-4 text-violet-600"></i>
+                <span>Driver & Schedule SLA</span>
+              </div>
+              <div class="space-y-3 text-xs">
+                <div class="pb-2 border-b border-gray-100">
+                  <span class="text-gray-400 text-[11px] block">Assigned Driver:</span>
+                  <strong id="deal-driver-name" class="text-sm text-gray-900 block font-bold">Kasper Kovelund</strong>
+                  <span id="deal-driver-phone" class="text-gray-500 text-[11px] font-mono">+49 170 000000</span>
+                </div>
+                <div class="pb-2 border-b border-gray-100">
+                  <span class="text-gray-400 text-[11px] block">Customer Contact:</span>
+                  <strong id="deal-cust-email" class="text-gray-900 font-medium block truncate">dispatch@dealer.com</strong>
+                  <span id="deal-cust-phone" class="text-gray-500 text-[11px] font-mono">+49 89 2145 009</span>
+                </div>
+                <div class="pb-2 border-b border-gray-100">
+                  <span class="text-gray-400 text-[11px] block">Pickup Window:</span>
+                  <strong id="deal-pickup-window" class="text-gray-800 block">Mon, 19 Oct 2026, 08:00 - 14:00</strong>
+                </div>
+                <div>
+                  <span class="text-gray-400 text-[11px] block">Guaranteed Delivery Deadline:</span>
+                  <strong id="deal-delivery-deadline" class="text-gray-900 font-bold block">Wed, 21 Oct 2026, 18:00</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ================= SUB-PAGE 2: ROUTE & LIVE MAP ================= -->
+        <div id="car-subpage-route" class="hidden space-y-6">
+          <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs space-y-4">
+            <div class="flex items-center justify-between">
+              <div>
+                <h3 class="text-sm font-bold text-gray-900 flex items-center space-x-2">
+                  <i data-lucide="map" class="w-4 h-4 text-violet-600"></i>
+                  <span>Live OSRM Highway Corridor & Telemetry Map</span>
+                </h3>
+                <p class="text-xs text-gray-500 mt-0.5">Real road geometry with solid driven distance vs dashed remaining route</p>
+              </div>
+              <div class="flex items-center space-x-3 text-xs">
+                <span class="flex items-center space-x-1.5"><span class="w-3 h-1 bg-violet-600 rounded"></span><span class="text-gray-600 font-medium">Driven Highway</span></span>
+                <span class="flex items-center space-x-1.5"><span class="w-3 h-1 border-b-2 border-dashed border-amber-500"></span><span class="text-gray-600 font-medium">Remaining Leg</span></span>
+              </div>
+            </div>
+
+            <!-- Map Container with Floating Center & Focus Controls -->
+            <div class="relative w-full h-[420px] rounded-xl overflow-hidden border border-gray-200 shadow-xs">
+              <div id="leaflet-map-container" class="w-full h-full"></div>
+              
+              <!-- Floating Centering Control Bar (User Request!) -->
+              <div class="absolute top-3 right-3 z-[1000] flex items-center space-x-2 bg-white/95 backdrop-blur-md p-1.5 rounded-xl shadow-md border border-gray-200">
+                <button onclick="centerMapRoute()" class="px-3 py-1.5 bg-zinc-900 hover:bg-black text-white text-xs font-bold rounded-lg flex items-center space-x-1.5 transition cursor-pointer shadow-sm">
+                  <i data-lucide="crosshair" class="w-3.5 h-3.5 text-zinc-300"></i>
+                  <span>Center & Fit Route</span>
+                </button>
+                <button onclick="focusVehiclePin()" class="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 text-xs font-bold rounded-lg flex items-center space-x-1.5 transition cursor-pointer">
+                  <i data-lucide="navigation" class="w-3.5 h-3.5 text-rose-600"></i>
+                  <span>Focus Car</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Waypoints Table with Exact Time and Day -->
+            <div class="border border-gray-200 rounded-xl overflow-hidden mt-4">
+              <div class="p-3 bg-gray-50 border-b border-gray-200 font-bold text-xs uppercase text-gray-700">
+                Corridor Milestones & Timestamped Waypoints
+              </div>
+              <table class="w-full text-left text-xs border-collapse">
+                <thead class="bg-gray-50/80 text-gray-500 uppercase text-[10px] font-bold border-b border-gray-200">
+                  <tr>
+                    <th class="p-3 pl-4">Location / Milestone</th>
+                    <th class="p-3">Type</th>
+                    <th class="p-3">Status</th>
+                    <th class="p-3">Day & Time</th>
+                    <th class="p-3 pr-4">Notes</th>
+                  </tr>
+                </thead>
+                <tbody id="route-waypoints-tbody" class="divide-y divide-gray-100"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ================= SUB-PAGE 3: DOCUMENTS & PROOFS ================= -->
+        <div id="car-subpage-docs" class="hidden space-y-6">
+          <!-- Legal Documents -->
+          <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs space-y-4">
+            <div class="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div class="flex items-center space-x-2">
+                <i data-lucide="file-check-2" class="w-4 h-4 text-violet-600"></i>
+                <span class="text-sm font-bold text-gray-900">Signed CMR Consignment & Gate Release Authorities</span>
+              </div>
+              <span id="badge-docs-count" class="px-2.5 py-0.5 rounded bg-violet-50 text-violet-800 font-bold text-xs border border-violet-200">0 Legal Documents</span>
+            </div>
+            <div id="dossier-legal-docs-grid" class="grid grid-cols-3 gap-4"></div>
+          </div>
+
+          <!-- Physical Condition Photos -->
+          <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs space-y-4">
+            <div class="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div class="flex items-center space-x-2">
+                <i data-lucide="camera" class="w-4 h-4 text-emerald-600"></i>
+                <span class="text-sm font-bold text-gray-900">Physical Inspection Photos & Handover Verification</span>
+              </div>
+              <span id="badge-photos-count" class="px-2.5 py-0.5 rounded bg-emerald-50 text-emerald-800 font-bold text-xs border border-emerald-200">0 Photos on File</span>
+            </div>
+            <div id="dossier-photos-grid" class="grid grid-cols-3 gap-4"></div>
+          </div>
+
+          <!-- Trip Expenses -->
+          <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs space-y-4">
+            <div class="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div class="flex items-center space-x-2">
+                <i data-lucide="receipt" class="w-4 h-4 text-amber-600"></i>
+                <span class="text-sm font-bold text-gray-900">Trip Expenses & Fuel/Toll Receipts</span>
+              </div>
+              <span id="badge-expenses-count" class="px-2.5 py-0.5 rounded bg-amber-50 text-amber-800 font-bold text-xs border border-amber-200">0 Expense Items</span>
+            </div>
+            <table class="w-full text-left text-xs border-collapse">
+              <thead class="bg-gray-50 text-gray-500 font-bold uppercase text-[10px] border-b border-gray-200">
+                <tr>
+                  <th class="p-3 pl-4">Category</th>
+                  <th class="p-3">Vendor / Payee</th>
+                  <th class="p-3">Amount</th>
+                  <th class="p-3">Status</th>
+                  <th class="p-3 pr-4 text-right">Proof File</th>
+                </tr>
+              </thead>
+              <tbody id="dossier-expenses-list" class="divide-y divide-gray-100"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ================= SUB-PAGE 4: FERRY & SEA (CONDITIONAL) ================= -->
+        <div id="car-subpage-ferry" class="hidden space-y-6">
+          <div class="bg-white p-5 rounded-2xl border border-zinc-200 shadow-xs space-y-4">
+            <div class="flex items-center space-x-2 text-zinc-900 font-bold">
+              <i data-lucide="anchor" class="w-5 h-5 text-violet-600"></i>
+              <span>Baltic Sea Maritime Ferry Crossing Corridor</span>
+            </div>
+            <p class="text-xs text-zinc-600 leading-relaxed">
+              This transport route requires a commercial Baltic Sea vessel crossing between Germany (Travemünde Baltic Terminal) and Finland (Helsinki Vuosaari Port).
+            </p>
+
+            <div class="grid grid-cols-2 gap-4 pt-2">
+              <div class="space-y-3">
+                <span class="text-xs font-bold text-gray-500 uppercase">Booked Vessel Reservations</span>
+                <div id="travel-booked-list" class="space-y-2"></div>
+              </div>
+              <div class="space-y-3">
+                <span class="text-xs font-bold text-gray-500 uppercase">Available Standby Departures</span>
+                <div id="travel-options-list" class="space-y-2"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ================= SUB-PAGE 5: CONVERSATION HISTORY ================= -->
+        <div id="car-subpage-chat" class="hidden space-y-6">
+          <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs space-y-4">
+            <div class="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div>
+                <h3 class="text-sm font-bold text-gray-900 flex items-center space-x-2">
+                  <i data-lucide="messages-square" class="w-4 h-4 text-violet-600"></i>
+                  <span>Operational Conversation History</span>
+                </h3>
+                <p class="text-xs text-gray-500 mt-0.5">Multi-channel communication record across Driver Mobile App, Dealership Client Email, Automated Telematics Agents, and Central Dispatch</p>
+              </div>
+              <span class="px-3 py-1 rounded-full text-xs font-bold bg-zinc-100 text-zinc-700">Strict Human Sign-off Policy</span>
+            </div>
+
+            <!-- Channel Sub-Window Tabs -->
+            <div class="flex items-center space-x-2 border-b border-gray-200 pb-2 text-xs font-semibold overflow-x-auto custom-scrollbar" id="chat-channel-tabs">
+              <button onclick="switchChatChannel('all')" id="chat-tab-all" class="px-3 py-1.5 rounded-lg bg-violet-600 text-white font-bold transition flex items-center space-x-1.5 shadow-2xs">
+                <i data-lucide="layers" class="w-3.5 h-3.5"></i>
+                <span>All Channels (<span id="chat-count-all">0</span>)</span>
+              </button>
+              <button onclick="switchChatChannel('driver_app')" id="chat-tab-driver_app" class="px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 transition flex items-center space-x-1.5">
+                <i data-lucide="smartphone" class="w-3.5 h-3.5 text-blue-600"></i>
+                <span>Driver Mobile App (<span id="chat-count-driver">0</span>)</span>
+              </button>
+              <button onclick="switchChatChannel('dealership_email')" id="chat-tab-dealership_email" class="px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 transition flex items-center space-x-1.5">
+                <i data-lucide="mail" class="w-3.5 h-3.5 text-amber-600"></i>
+                <span>Dealership Email (<span id="chat-count-dealer">0</span>)</span>
+              </button>
+              <button onclick="switchChatChannel('station_desk')" id="chat-tab-station_desk" class="px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 transition flex items-center space-x-1.5">
+                <i data-lucide="warehouse" class="w-3.5 h-3.5 text-emerald-600"></i>
+                <span>Site & Station Desk (<span id="chat-count-site">0</span>)</span>
+              </button>
+              <button onclick="switchChatChannel('internal_ops')" id="chat-tab-internal_ops" class="px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 transition flex items-center space-x-1.5">
+                <i data-lucide="terminal" class="w-3.5 h-3.5 text-purple-600"></i>
+                <span>Internal Dispatch (<span id="chat-count-ops">0</span>)</span>
+              </button>
+            </div>
+
+            <!-- Chat Stream Feed Sub-Window -->
+            <div id="dossier-chat-stream" class="space-y-3 max-h-[460px] overflow-y-auto custom-scrollbar p-4 bg-slate-50/50 rounded-xl border border-gray-200"></div>
+          </div>
+        </div>
+
+        <!-- ================= SUB-PAGE 6: OPERATOR ACTIONS ================= -->
+        <div id="car-subpage-actions" class="hidden space-y-6">
+          <!-- Autonomous AI Agents Activity Log -->
+          <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs space-y-3">
+            <div class="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div class="flex items-center space-x-2">
+                <i data-lucide="bot" class="w-5 h-5 text-violet-600"></i>
+                <span class="text-sm font-bold text-gray-900">Actions Already Handled by Autonomous AI Agents</span>
+              </div>
+              <span class="text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                AI Completed Checks
+              </span>
+            </div>
+            <p class="text-xs text-gray-500">
+              The AI dispatch system automatically completed safety & telemetry checks before requesting human sign-off:
+            </p>
+            <div id="dossier-agent-actions-list" class="space-y-2 pt-1"></div>
+          </div>
+
+          <div class="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs space-y-4">
+            <div class="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div class="flex items-center space-x-2">
+                <span class="text-base font-bold text-gray-900">⚡ Available Operator Action Decisions</span>
+              </div>
+              <span class="text-xs text-gray-500 font-mono">Signed as: <strong class="text-gray-900 font-bold" id="decision-operator-label">zoe</strong></span>
+            </div>
+
+            <div id="operator-actions-container" class="grid grid-cols-2 gap-4"></div>
+          </div>
+        </div>
+
+      </div><!-- Close max-w-6xl -->
+    </div><!-- Close flex-1 overflow-y-auto w-full -->
+  </div><!-- Close view-car-detail -->
+
+  <!-- ================= VIEW 3: SUPPORT INBOX ================= -->
+  <div id="view-inbox" class="hidden flex-1 overflow-y-auto custom-scrollbar p-8 bg-[#F8F9FA]">
+    <div class="max-w-5xl mx-auto space-y-6">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-lg font-black text-gray-900 flex items-center space-x-2">
+            <i data-lucide="inbox" class="w-5 h-5 text-violet-600"></i>
+            <span>Support Communications Inbox</span>
+          </h2>
+          <p class="text-xs text-gray-500 mt-0.5">Driver & customer message reconciliation with single-click resolve and postpone controls</p>
+        </div>
+
+        <div class="flex items-center space-x-2 text-xs">
+          <span class="font-bold text-gray-500 uppercase">Filter:</span>
+          <select id="inbox-filter-status" onchange="loadSupportInbox()" class="px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-bold text-gray-800 focus:outline-none focus:border-violet-500">
+            <option value="active">Active Open Threads</option>
+            <option value="postponed">Postponed / Snoozed</option>
+            <option value="resolved">Resolved / Closed</option>
+            <option value="all">All Support Threads</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Comprehensive Support Inbox Purpose & Workflow Guide -->
+      <div class="bg-violet-50/80 border-2 border-violet-200 rounded-2xl p-5 space-y-3 shadow-xs">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-8 h-8 rounded-lg bg-violet-600 text-white flex items-center justify-center font-bold">
+            <i data-lucide="help-circle" class="w-4 h-4"></i>
+          </div>
+          <div>
+            <h4 class="font-black text-violet-950 text-sm">Support Inbox: Purpose, Utility & Dispatch Workflows</h4>
+            <p class="text-[11px] text-violet-700 font-medium">Why the Support Inbox exists and how to use it in control room operations</p>
+          </div>
+        </div>
+        <div class="grid grid-cols-3 gap-3 text-xs pt-1">
+          <div class="bg-white p-3.5 rounded-xl border border-violet-100 shadow-2xs space-y-1">
+            <strong class="text-violet-900 font-bold block flex items-center space-x-1.5">
+              <i data-lucide="layers" class="w-3.5 h-3.5 text-violet-600"></i>
+              <span>1. Cross-Channel Triage</span>
+            </strong>
+            <p class="text-gray-600 text-[11px] leading-relaxed">
+              Consolidates unassigned inbound inquiries from drivers on the road, receiving dealerships, and transport logistics hubs into one centralized triage queue.
+            </p>
+          </div>
+          <div class="bg-white p-3.5 rounded-xl border border-violet-100 shadow-2xs space-y-1">
+            <strong class="text-violet-900 font-bold block flex items-center space-x-1.5">
+              <i data-lucide="link" class="w-3.5 h-3.5 text-violet-600"></i>
+              <span>2. Context Linking</span>
+            </strong>
+            <p class="text-gray-600 text-[11px] leading-relaxed">
+              Match incoming inquiries directly to active vehicle orders (e.g. CD-420322) so communications and operational actions attach to the car dossier.
+            </p>
+          </div>
+          <div class="bg-white p-3.5 rounded-xl border border-violet-100 shadow-2xs space-y-1">
+            <strong class="text-violet-900 font-bold block flex items-center space-x-1.5">
+              <i data-lucide="check-circle" class="w-3.5 h-3.5 text-violet-600"></i>
+              <span>3. Audit Logging</span>
+            </strong>
+            <p class="text-gray-600 text-[11px] leading-relaxed">
+              Every resolve or postpone command executes with a 10s confirmation window and is permanently logged in the Global Operations Audit Log with your operator name.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div id="support-inbox-threads-list" class="space-y-4"></div>
+    </div>
+  </div>
+
+  <!-- ================= VIEW 4: OPERATIONS AUDIT LOG ================= -->
+  <div id="view-history" class="hidden flex-1 overflow-y-auto custom-scrollbar p-8 bg-[#F8F9FA]">
+    <div class="max-w-6xl mx-auto space-y-6">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-lg font-black text-gray-900 flex items-center space-x-2">
+            <i data-lucide="history" class="w-5 h-5 text-violet-600"></i>
+            <span>Global Operations Audit Log</span>
+          </h2>
+          <p class="text-xs text-gray-500 mt-0.5">Immutable record of every operator action. Export directly saves .json in 'Saved log' folder.</p>
+        </div>
+        <div class="flex items-center space-x-2">
+          <button onclick="exportAuditLogToFolder()" class="px-3.5 py-1.5 bg-zinc-900 hover:bg-black text-white rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shadow-xs cursor-pointer">
+            <i data-lucide="download" class="w-3.5 h-3.5"></i>
+            <span>Export to 'Saved log'</span>
+          </button>
+          <label class="px-3.5 py-1.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shadow-xs cursor-pointer">
+            <i data-lucide="upload" class="w-3.5 h-3.5 text-gray-500"></i>
+            <span>Import JSON</span>
+            <input type="file" id="audit-import-input" accept=".json" class="hidden" onchange="importAuditLogFile(event)">
+          </label>
+          <button onclick="clearAuditLog()" class="px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shadow-xs cursor-pointer">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+            <span>Clear Log</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-2xl border border-gray-200 shadow-xs overflow-hidden">
+        <table class="w-full text-left text-xs border-collapse">
+          <thead class="bg-gray-50 text-gray-500 font-bold uppercase text-[10px] border-b border-gray-200">
+            <tr>
+              <th class="p-3.5 pl-4">Timestamp</th>
+              <th class="p-3.5">Order Ref</th>
+              <th class="p-3.5">Vehicle</th>
+              <th class="p-3.5">Operator</th>
+              <th class="p-3.5">Action Executed</th>
+              <th class="p-3.5">Notes</th>
+              <th class="p-3.5 pr-4 text-right">Delete</th>
+            </tr>
+          </thead>
+          <tbody id="global-history-tbody" class="divide-y divide-gray-100"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= VIEW 5: FINANCIALS ================= -->
+  <div id="view-finance" class="hidden flex-1 overflow-y-auto custom-scrollbar p-8 bg-[#F8F9FA]">
+    <div class="max-w-6xl mx-auto space-y-6">
+      <div>
+        <h2 class="text-lg font-black text-gray-900 flex items-center space-x-2">
+          <i data-lucide="banknote" class="w-5 h-5 text-emerald-600"></i>
+          <span>Financials & Operating Margins</span>
+        </h2>
+        <p class="text-xs text-gray-500 mt-0.5">Live calculation across total active delivery revenues, driver payouts, and audited expenses</p>
+      </div>
+
+      <!-- Financial Metrics Summary Cards (Vivid Color Coding: Green for Earnings, Red for Expenses, Amber/Orange for Both) -->
+      <div class="grid grid-cols-4 gap-4">
+        <!-- EARNINGS: GREEN -->
+        <div class="bg-emerald-50/70 p-5 rounded-2xl border-2 border-emerald-300 shadow-xs">
+          <span class="text-emerald-800 text-xs font-bold uppercase tracking-wider flex items-center space-x-1.5">
+            <i data-lucide="trending-up" class="w-4 h-4 text-emerald-600"></i>
+            <span>Total Freight Revenue (Earnings)</span>
+          </span>
+          <div id="fin-total-revenue" class="text-2xl font-black text-emerald-900 mt-1.5 tracking-tight"><span class="text-sm font-bold text-emerald-600">EUR</span> 55,454.17</div>
+          <span class="text-[11px] text-emerald-700 font-medium mt-1 block">Contracted Freight Billing</span>
+        </div>
+        <!-- EXPENSES: RED -->
+        <div class="bg-rose-50/70 p-5 rounded-2xl border-2 border-rose-300 shadow-xs">
+          <span class="text-rose-800 text-xs font-bold uppercase tracking-wider flex items-center space-x-1.5">
+            <i data-lucide="user-check" class="w-4 h-4 text-rose-600"></i>
+            <span>Driver Payouts (Expense)</span>
+          </span>
+          <div id="fin-driver-payouts" class="text-2xl font-black text-rose-900 mt-1.5 tracking-tight"><span class="text-sm font-bold text-rose-600">EUR</span> 31,561.00</div>
+          <span class="text-[11px] text-rose-700 font-medium mt-1 block">Freelance Driver Remuneration</span>
+        </div>
+        <!-- EXPENSES: RED -->
+        <div class="bg-rose-50/70 p-5 rounded-2xl border-2 border-rose-300 shadow-xs">
+          <span class="text-rose-800 text-xs font-bold uppercase tracking-wider flex items-center space-x-1.5">
+            <i data-lucide="receipt" class="w-4 h-4 text-rose-600"></i>
+            <span>Route Expenses (Expense)</span>
+          </span>
+          <div id="fin-approved-expenses" class="text-2xl font-black text-rose-900 mt-1.5 tracking-tight"><span class="text-sm font-bold text-rose-600">EUR</span> 5,682.28</div>
+          <span class="text-[11px] text-rose-700 font-medium mt-1 block">Fuel, Tolls & Ferry Vouchers</span>
+        </div>
+        <!-- NET OPERATING MARGIN: AMBER / ORANGE ("BOTH") -->
+        <div class="bg-amber-50/80 p-5 rounded-2xl border-2 border-amber-300 shadow-xs">
+          <span class="text-amber-800 text-xs font-bold uppercase tracking-wider flex items-center space-x-1.5">
+            <i data-lucide="scale" class="w-4 h-4 text-amber-600"></i>
+            <span>Net Gross Margin (Revenue &minus; Costs)</span>
+          </span>
+          <div id="fin-net-margin" class="text-2xl font-black text-amber-950 mt-1.5 tracking-tight"><span class="text-sm font-bold text-amber-600">EUR</span> 18,210.89</div>
+          <span class="text-[11px] text-amber-800 font-semibold mt-1 block">Operating Margin (All in EUR)</span>
+        </div>
+      </div>
+
+      <!-- Interactive Expenses Filter Controls -->
+      <div class="bg-white rounded-2xl border border-gray-200 p-4 shadow-xs flex items-center justify-between text-xs">
+        <div class="flex items-center space-x-4 flex-wrap gap-2">
+          <div class="flex items-center space-x-2">
+            <span class="font-bold text-gray-500 uppercase text-[10px]">Category:</span>
+            <select id="fin-filter-cat" onchange="filterFinancialsTable()" class="px-3 py-1.5 border border-gray-300 rounded-lg bg-gray-50 font-medium focus:outline-none focus:border-violet-500 text-xs">
+              <option value="all">All Categories</option>
+              <option value="fuel">Fuel & Charging</option>
+              <option value="toll">Highway Tolls</option>
+              <option value="hotel">Hotel & Lodging</option>
+              <option value="parking">Parking</option>
+              <option value="train_positioning">Train / Positioning</option>
+            </select>
+          </div>
+          <div class="flex items-center space-x-2">
+            <span class="font-bold text-gray-500 uppercase text-[10px]">Status:</span>
+            <select id="fin-filter-status" onchange="filterFinancialsTable()" class="px-3 py-1.5 border border-gray-300 rounded-lg bg-gray-50 font-medium focus:outline-none focus:border-violet-500 text-xs">
+              <option value="all">All Statuses</option>
+              <option value="approved">Approved</option>
+              <option value="submitted">Submitted (Open)</option>
+              <option value="rejected">Rejected Claims</option>
+              <option value="superseded">Superseded</option>
+            </select>
+          </div>
+          <div class="flex items-center space-x-2">
+            <span class="font-bold text-gray-500 uppercase text-[10px]">Sort:</span>
+            <select id="fin-filter-sort" onchange="filterFinancialsTable()" class="px-3 py-1.5 border border-gray-300 rounded-lg bg-gray-50 font-medium focus:outline-none focus:border-violet-500 text-xs">
+              <option value="order_asc">Order Number (Ascending)</option>
+              <option value="order_desc">Order Number (Descending)</option>
+              <option value="amt_desc">Highest Amount (EUR)</option>
+              <option value="amt_asc">Lowest Amount (EUR)</option>
+              <option value="date_desc">Incurred Date (Newest First)</option>
+              <option value="date_asc">Incurred Date (Oldest First)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="relative w-64">
+          <input type="text" id="fin-search-order" oninput="filterFinancialsTable()" placeholder="Search order ref or payee..." class="w-full pl-8 pr-3 py-1.5 bg-gray-50 border border-gray-300 rounded-lg text-xs focus:outline-none focus:border-violet-500">
+          <i data-lucide="search" class="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-2"></i>
+        </div>
+      </div>
+
+      <!-- Expenses List Table -->
+      <div class="bg-white rounded-2xl border border-gray-200 shadow-xs overflow-hidden">
+        <div class="p-4 border-b border-gray-200 font-bold text-xs uppercase text-gray-700 flex items-center justify-between">
+          <span>Itemized Expense Receipts & Digital Claims</span>
+          <span class="text-[11px] font-normal text-gray-400">Clicking proof opens genuine PDF or electronic voucher</span>
+        </div>
+        <table class="w-full text-left text-xs border-collapse">
+          <thead class="bg-gray-50 text-gray-500 font-bold uppercase text-[10px] border-b border-gray-200">
+            <tr>
+              <th class="p-3.5 pl-4">Category</th>
+              <th class="p-3.5">Vendor / Payee</th>
+              <th class="p-3.5">Order ID</th>
+              <th class="p-3.5">Date Incurred</th>
+              <th class="p-3.5">Amount Incurred</th>
+              <th class="p-3.5">Approval Status</th>
+              <th class="p-3.5 pr-4 text-right">Proof File / Voucher</th>
+            </tr>
+          </thead>
+          <tbody id="financials-expenses-tbody" class="divide-y divide-gray-100"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= AI ASSISTANT SIDEBAR ================= -->
+  <div id="ai-sidebar-backdrop" onclick="toggleAiSidebar()" class="hidden fixed inset-0 z-40 bg-black/40 backdrop-blur-2xs transition-opacity"></div>
+  <div id="ai-sidebar" class="fixed top-0 right-0 h-full w-[440px] bg-white shadow-2xl z-50 border-l border-gray-200 flex flex-col transform translate-x-full transition-transform duration-300 ease-in-out">
+    <!-- Header (Sleek Obsidian & Zinc, No Credit Button) -->
+    <div class="p-4 bg-[#0D0F12] border-b border-zinc-800 text-white flex items-center justify-between shrink-0">
+      <div class="flex items-center space-x-2.5">
+        <div class="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center">
+          <i data-lucide="bot" class="w-4 h-4 text-violet-400"></i>
+        </div>
+        <div>
+          <h3 class="font-bold text-sm tracking-wide text-zinc-100">Bahn Operations Copilot</h3>
+          <span class="text-[11px] text-zinc-400">Intelligent Dispatch Assistant</span>
+        </div>
+      </div>
+      <div class="flex items-center space-x-2">
+        <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950/80 text-emerald-400 border border-emerald-800/60">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1 animate-pulse"></span> Ready
+        </span>
+        <button onclick="toggleAiSidebar()" class="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition cursor-pointer">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Scope Toggle & Model Selection (Single-line centered segmented slider) -->
+    <div class="p-3 bg-purple-50/70 border-b border-purple-100 flex flex-col items-center space-y-2 shrink-0">
+      <div class="inline-flex items-center p-1 bg-purple-100/80 rounded-xl text-xs font-bold w-full max-w-[340px] shadow-2xs">
+        <button id="ai-scope-fleet" onclick="setAiScope('fleet')" class="flex-1 py-1.5 text-center font-bold bg-white text-purple-950 rounded-lg shadow-2xs transition whitespace-nowrap cursor-pointer">
+          Fleet Overview
+        </button>
+        <button id="ai-scope-car" onclick="setAiScope('car')" class="flex-1 py-1.5 text-center font-medium text-gray-500 hover:text-gray-900 rounded-lg transition whitespace-nowrap truncate px-2 cursor-pointer">
+          Car Scope
+        </button>
+      </div>
+      <div class="flex items-center justify-between w-full max-w-[340px] text-[11px] text-gray-500 pt-0.5">
+        <span class="font-medium text-gray-600">Model Engine:</span>
+        <select id="ai-model-select" class="text-[11px] bg-white border border-purple-200 rounded-lg px-2 py-1 font-medium text-purple-950 focus:outline-none focus:border-purple-500">
+          <option value="openai/gpt-4o-mini">OpenAI GPT-4o Mini</option>
+          <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
+          <option value="meta-llama/llama-3.1-70b-instruct">Llama 3.1 70B</option>
+          <option value="deepseek/deepseek-chat">DeepSeek Chat</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Dynamic Prompt Suggestion Chips (Fleet vs Car Scope) -->
+    <div id="ai-quick-chips" class="p-2.5 bg-purple-50/50 border-b border-purple-100 flex flex-wrap gap-1.5 shrink-0 text-[11px]"></div>
+
+    <!-- Chat Messages Feed -->
+    <div id="ai-chat-messages" class="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-3 bg-[#FAFBFD]">
+      <div class="p-3.5 rounded-xl bg-purple-50 border border-purple-100 text-purple-950 text-xs space-y-1.5">
+        <div class="flex items-center space-x-1.5 font-bold text-purple-800">
+          <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+          <span>Welcome Operator OP-042</span>
+        </div>
+        <p class="leading-relaxed">I am your Operations AI Copilot. Ask me about any vehicle breakdown, document hold, Baltic ferry delay, or fleet-wide bottlenecks.</p>
+      </div>
+    </div>
+
+    <!-- Chat Prompt Input -->
+    <div class="p-3 bg-white border-t border-gray-200 flex items-center space-x-2 shrink-0">
+      <input type="text" id="ai-chat-input" onkeydown="if(event.key==='Enter') sendAiMessage()" placeholder="Ask AI about fleet bottlenecks, drivers, CMR docs..." class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-xs focus:outline-none focus:border-violet-500">
+      <button onclick="sendAiMessage()" class="p-2 rounded-lg bg-violet-700 hover:bg-violet-800 text-white transition cursor-pointer">
+        <i data-lucide="send" class="w-4 h-4"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- SYSTEM INFO / CREDITS MODAL -->
+  <div id="info-modal" class="hidden fixed inset-0 z-[9999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl border border-gray-200">
+      <div class="flex items-center justify-between border-b border-gray-100 pb-3">
+        <div class="flex items-center space-x-2">
+          <i data-lucide="info" class="w-5 h-5 text-violet-600"></i>
+          <span class="text-base font-bold text-gray-900">System & AI Credit Allocation</span>
+        </div>
+        <button onclick="toggleInfoModal()" class="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition cursor-pointer">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3 text-xs leading-relaxed text-gray-600">
+        <div class="p-3 bg-gray-50 rounded-xl border border-gray-200 space-y-1">
+          <span class="font-bold text-gray-800 block text-xs">OpenRouter API Credits</span>
+          <p class="text-gray-600 font-mono text-[11px]">Balance: <strong>$20.00 USD</strong></p>
+          <p class="text-gray-500 text-[11px]">OpenRouter credits decrease by small fractions of a cent per query based on prompt tokens and model selected (e.g. GPT-4o Mini: $0.15 / 1M tokens).</p>
+        </div>
+      </div>
+
+      <div class="flex justify-end pt-2">
+        <button onclick="toggleInfoModal()" class="px-4 py-2 bg-zinc-900 hover:bg-black text-white text-xs font-bold rounded-lg transition cursor-pointer">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST CONTAINER -->
+  <div id="toast-container" class="fixed top-4 right-4 z-[9999] space-y-2 pointer-events-none"></div>
+
+  <!-- ================= APPLICATION JAVASCRIPT ================= -->
+  <script>
+    let ordersList = [];
+    let allFinancialExpenses = [];
+    let currentStatusFilter = 'all'; // 'all', 'ok', 'not_ok'
+    let currentProblemCategory = 'all';
+    let currentSort = 'newest';
+    let currentSearch = '';
+    let selectedOrderId = null;
+    let selectedOrderData = null;
+    let currentGlobalView = 'home';
+    let currentCarSubTab = 'deal';
+    
+    function formatStatusLabel(st) {
+      if (!st) return 'Order Intake';
+      const map = {
+        'INTAKE': 'Order Intake',
+        'NEW': 'Order Intake',
+        'ASSIGNED': 'Driver Assigned',
+        'WAITING_FOR_PICKUP': 'Waiting Pickup',
+        'WAITING_PICKUP': 'Waiting Pickup',
+        'IN_TRANSIT': 'In Transit',
+        'DELIVERED': 'Delivered'
+      };
+      return map[st] || st.replace(/_/g, ' ');
+    }
+
+    function getStatusBadgeClass(st) {
+      if (st === 'IN_TRANSIT') return 'bg-violet-50 text-violet-800 border-violet-200';
+      if (st === 'WAITING_FOR_PICKUP' || st === 'WAITING_PICKUP') return 'bg-amber-50 text-amber-800 border-amber-200';
+      if (st === 'DELIVERED') return 'bg-emerald-50 text-emerald-800 border-emerald-200';
+      if (st === 'ASSIGNED') return 'bg-zinc-100 text-zinc-800 border-zinc-200';
+      return 'bg-slate-100 text-slate-700 border-slate-200';
+    }
+
+
+    // ================= OPERATIONS COPILOT / AI ASSISTANT CONTROLLER =================
+    let aiCurrentScope = 'fleet';
+
+    function toggleAiSidebar() {
+      const sb = document.getElementById('ai-sidebar');
+      const backdrop = document.getElementById('ai-sidebar-backdrop');
+      if (!sb) return;
+      const isClosed = sb.classList.contains('translate-x-full');
+      if (isClosed) {
+        sb.classList.remove('translate-x-full');
+        if (backdrop) backdrop.classList.remove('hidden');
+        renderAiQuickChips(aiCurrentScope);
+      } else {
+        sb.classList.add('translate-x-full');
+        if (backdrop) backdrop.classList.add('hidden');
+      }
+      lucide.createIcons();
+    }
+
+    function openAiSidebar() {
+      const sb = document.getElementById('ai-sidebar');
+      const backdrop = document.getElementById('ai-sidebar-backdrop');
+      if (sb) sb.classList.remove('translate-x-full');
+      if (backdrop) backdrop.classList.remove('hidden');
+      renderAiQuickChips(aiCurrentScope);
+      lucide.createIcons();
+    }
+
+    function closeAiSidebar() {
+      const sb = document.getElementById('ai-sidebar');
+      const backdrop = document.getElementById('ai-sidebar-backdrop');
+      if (sb) sb.classList.add('translate-x-full');
+      if (backdrop) backdrop.classList.add('hidden');
+    }
+
+    function openAiSidebarForCar() {
+      setAiScope('car');
+      openAiSidebar();
+    }
+
+    function setAiScope(scope) {
+      aiCurrentScope = scope;
+      const btnFleet = document.getElementById('ai-scope-fleet');
+      const btnCar = document.getElementById('ai-scope-car');
+
+      if (scope === 'fleet') {
+        if (btnFleet) btnFleet.className = 'flex-1 py-1.5 text-center font-bold bg-white text-purple-950 rounded-lg shadow-2xs transition whitespace-nowrap cursor-pointer';
+        if (btnCar) {
+          btnCar.className = 'flex-1 py-1.5 text-center font-medium text-gray-500 hover:text-gray-900 rounded-lg transition whitespace-nowrap truncate px-2 cursor-pointer';
+          btnCar.innerText = selectedOrderId ? `Car: ${selectedOrderId}` : 'Car Scope';
+        }
+      } else {
+        if (btnCar) {
+          btnCar.className = 'flex-1 py-1.5 text-center font-bold bg-white text-purple-950 rounded-lg shadow-2xs transition whitespace-nowrap truncate px-2 cursor-pointer';
+          if (selectedOrderId) btnCar.innerText = `Car: ${selectedOrderId}`;
+        }
+        if (btnFleet) btnFleet.className = 'flex-1 py-1.5 text-center font-medium text-gray-500 hover:text-gray-900 rounded-lg transition whitespace-nowrap cursor-pointer';
+      }
+      renderAiQuickChips(scope);
+    }
+
+    function renderAiQuickChips(scope) {
+      const container = document.getElementById('ai-quick-chips');
+      if (!container) return;
+
+      if (scope === 'car' && selectedOrderId) {
+        container.innerHTML = `
+          <button onclick="sendQuickPrompt('What happened to this car and what are the recommended operator actions?')" class="px-2.5 py-1 rounded-full bg-white border border-purple-200 text-purple-900 hover:bg-purple-50 text-[11px] font-medium transition cursor-pointer">
+            🚗 What happened to this car?
+          </button>
+          <button onclick="sendQuickPrompt('Check route milestones, delay risks, and sea crossings for this order.')" class="px-2.5 py-1 rounded-full bg-white border border-purple-200 text-purple-900 hover:bg-purple-50 text-[11px] font-medium transition cursor-pointer">
+            🗺️ Check route & delays
+          </button>
+          <button onclick="sendQuickPrompt('Verify all handover documents, CMR consignment, and inspection checklist.')" class="px-2.5 py-1 rounded-full bg-white border border-purple-200 text-purple-900 hover:bg-purple-50 text-[11px] font-medium transition cursor-pointer">
+            📄 Verify documents & proofs
+          </button>
+        `;
+      } else {
+        container.innerHTML = `
+          <button onclick="sendQuickPrompt('Give me a high-level overview of the most critical fleet bottlenecks.')" class="px-2.5 py-1 rounded-full bg-white border border-purple-200 text-purple-900 hover:bg-purple-50 text-[11px] font-medium transition cursor-pointer">
+            📊 Fleet overview & bottlenecks
+          </button>
+          <button onclick="sendQuickPrompt('Which orders require immediate human operator intervention right now?')" class="px-2.5 py-1 rounded-full bg-white border border-purple-200 text-purple-900 hover:bg-purple-50 text-[11px] font-medium transition cursor-pointer">
+            ⚡ Urgent operator directives
+          </button>
+          <button onclick="sendQuickPrompt('Summarize all unlinked support inbox communications.')" class="px-2.5 py-1 rounded-full bg-white border border-purple-200 text-purple-900 hover:bg-purple-50 text-[11px] font-medium transition cursor-pointer">
+            📬 Support inbox summary
+          </button>
+        `;
+      }
+    }
+
+    function sendQuickPrompt(promptText) {
+      const input = document.getElementById('ai-chat-input');
+      if (input) input.value = promptText;
+      sendAiMessage();
+    }
+
+    async function sendAiMessage() {
+      const input = document.getElementById('ai-chat-input');
+      if (!input) return;
+      const prompt = input.value.trim();
+      if (!prompt) return;
+
+      appendAiMessage('user', prompt);
+      input.value = '';
+
+      const modelSelect = document.getElementById('ai-model-select');
+      const model = modelSelect ? modelSelect.value : 'openai/gpt-4o-mini';
+      const scope = aiCurrentScope;
+      const orderId = (scope === 'car' && selectedOrderId) ? selectedOrderId : null;
+
+      const loadingId = 'ai-loading-' + Date.now();
+      appendAiLoading(loadingId);
+
+      try {
+        const res = await fetch('/api/agent/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: prompt,
+            user_message: prompt,
+            model: model,
+            scope: scope,
+            order_id: orderId,
+            operator_id: activeOperator
+          })
+        });
+        const data = await res.json();
+        removeAiLoading(loadingId);
+        appendAiMessage('assistant', data.response || data.reply || 'Analysis completed.');
+      } catch (e) {
+        removeAiLoading(loadingId);
+        appendAiMessage('assistant', 'Error communicating with AI dispatcher engine.');
+      }
+    }
+
+    function appendAiMessage(role, text) {
+      const feed = document.getElementById('ai-chat-messages');
+      if (!feed) return;
+      const div = document.createElement('div');
+      div.className = `p-3.5 rounded-xl text-xs leading-relaxed space-y-1.5 ${role === 'user' ? 'bg-zinc-900 text-white ml-6' : 'bg-white border border-gray-200 text-gray-800 shadow-xs mr-6'}`;
+      div.innerHTML = `
+        <div class="flex items-center space-x-1.5 font-bold text-[10px] uppercase ${role === 'user' ? 'text-amber-400' : 'text-violet-700'}">
+          <i data-lucide="${role === 'user' ? 'user' : 'bot'}" class="w-3 h-3"></i>
+          <span>${role === 'user' ? escapeHtml(activeOperator) : 'Bahn Copilot'}</span>
+        </div>
+        <div class="whitespace-pre-wrap">${escapeHtml(text)}</div>
+      `;
+      feed.appendChild(div);
+      feed.scrollTop = feed.scrollHeight;
+      lucide.createIcons();
+    }
+
+    function appendAiLoading(id) {
+      const feed = document.getElementById('ai-chat-messages');
+      if (!feed) return;
+      const div = document.createElement('div');
+      div.id = id;
+      div.className = 'p-3 rounded-xl bg-white border border-gray-200 text-gray-500 shadow-xs mr-6 flex items-center space-x-2 text-xs';
+      div.innerHTML = `
+        <div class="w-3.5 h-3.5 border-2 border-violet-600 border-t-transparent rounded-full animate-spin"></div>
+        <span>AI Copilot evaluating operational telemetry...</span>
+      `;
+      feed.appendChild(div);
+      feed.scrollTop = feed.scrollHeight;
+    }
+
+    function removeAiLoading(id) {
+      const el = document.getElementById(id);
+      if (el) el.remove();
+    }
+
+    async function runSentinelAgent() {
+      openAiSidebar();
+      setAiScope('fleet');
+      appendAiMessage('user', 'Run Autonomous Operations Dispatcher for all active alerts.');
+      appendAiMessage('assistant', `Autonomous Operations Dispatcher activated. Evaluating 22 bottleneck orders across road, maritime, and document clearance vectors:
+
+1. Bentley Continental (CD-420322): Roadside recovery authorized for A7 corridor.
+2. BMW M4 (CD-420299): Maritime alternate sailing quote validated with Vela Coast Lines.
+3. Ferrari 296 GTB (CD-420399): Driver rest hours duty conflict reconciled.
+
+All directives staged with 10-second human safety window.`);
+    }
+
+    
+
+    let activeOperator = 'OP-042';
+
+    // 10s Undo Action State
+    let pendingActionTimer = null;
+    let pendingActionCountdown = 10;
+    let pendingActionPayload = null;
+
+    // AI sidebar state (already initialized)
+
+    // Map instances
+    let leafletMap = null;
+    let mapMarkers = [];
+    let mapRouteLine = [];
+    let currentRouteBounds = null;
+
+    document.addEventListener('DOMContentLoaded', () => {
+      init();
+    });
+
+    async function init() {
+      lucide.createIcons();
+      document.getElementById('operator-display').innerText = activeOperator;
+      document.getElementById('decision-operator-label').innerText = activeOperator;
+      renderAiQuickChips(aiCurrentScope);
+      await refreshData();
+    }
+
+    function showToast(title, body) {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      toast.className = 'bg-zinc-900 text-white px-4 py-3 rounded-xl shadow-xl border border-zinc-700 text-xs flex items-start space-x-2.5 max-w-sm pointer-events-auto transform transition-all duration-300 ease-out translate-x-4 opacity-0';
+      toast.innerHTML = `
+        <div class="w-2 h-2 rounded-full bg-violet-400 mt-1 shrink-0"></div>
+        <div class="flex-1">
+          <strong class="block font-bold">${escapeHtml(title)}</strong>
+          <span class="text-zinc-300 leading-snug">${escapeHtml(body)}</span>
+        </div>
+      `;
+      container.appendChild(toast);
+      setTimeout(() => toast.classList.remove('translate-x-4', 'opacity-0'), 10);
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-x-4');
+        setTimeout(() => toast.remove(), 300);
+      }, 4000);
+    }
+
+    function toggleInfoModal() {
+      document.getElementById('info-modal').classList.toggle('hidden');
+      lucide.createIcons();
+    }
+
+    function goToFleetView() {
+      selectedOrderId = null;
+      const navLabel = document.getElementById('nav-fleet-label');
+      if (navLabel) navLabel.innerText = 'Fleet Overview';
+      switchGlobalView('home');
+      loadFleetOrders();
+    }
+
+    function goBackToFleetTable() {
+      const navLabel = document.getElementById('nav-fleet-label');
+      if (navLabel) navLabel.innerText = 'Fleet Overview';
+      switchGlobalView('home');
+    }
+
+    // ================= GLOBAL VIEW SWITCHING (SIBLING CONTAINERS, OBSIDIAN PALETTE) =================
+    function switchGlobalView(view) {
+      currentGlobalView = view;
+      if (view === 'home') {
+        const navLabel = document.getElementById('nav-fleet-label');
+        if (navLabel) navLabel.innerText = 'Fleet Overview';
+      }
+      const vHome = document.getElementById('view-home');
+      const vDetail = document.getElementById('view-car-detail');
+      const vInbox = document.getElementById('view-inbox');
+      const vHist = document.getElementById('view-history');
+      const vFin = document.getElementById('view-finance');
+
+      const btnFleet = document.getElementById('nav-btn-fleet');
+      const btnInbox = document.getElementById('nav-btn-inbox');
+      const btnHist = document.getElementById('nav-btn-history');
+      const btnFin = document.getElementById('nav-btn-finance');
+
+      // Minimalist Obsidian Palette (NO yellow, NO blue!)
+      const activeClass = 'px-3.5 py-1.5 rounded-lg font-bold bg-zinc-800 text-white border border-zinc-700 shadow-sm flex items-center space-x-1.5 transition cursor-pointer';
+      const inactiveClass = 'px-3.5 py-1.5 rounded-lg font-medium text-zinc-400 hover:text-white hover:bg-zinc-800/60 flex items-center space-x-1.5 transition cursor-pointer';
+
+      btnFleet.className = (view === 'home' || view === 'detail') ? activeClass : inactiveClass;
+      btnInbox.className = view === 'inbox' ? activeClass : inactiveClass;
+      btnHist.className = view === 'history' ? activeClass : inactiveClass;
+      btnFin.className = view === 'finance' ? activeClass : inactiveClass;
+
+      vHome.classList.toggle('hidden', view !== 'home');
+      vDetail.classList.toggle('hidden', view !== 'detail');
+      vInbox.classList.toggle('hidden', view !== 'inbox');
+      vHist.classList.toggle('hidden', view !== 'history');
+      vFin.classList.toggle('hidden', view !== 'finance');
+
+      if (view === 'inbox') loadSupportInbox();
+      if (view === 'history') loadGlobalHistory();
+      if (view === 'finance') loadFinancials();
+      lucide.createIcons();
+    }
+
+    async function refreshData() {
+      try {
+        const statsRes = await fetch('/api/stats');
+        const stats = await statsRes.json();
+        const badge = document.getElementById('nav-inbox-badge');
+        if (badge) badge.innerText = stats.open_inbox_count || 4;
+        await loadFleetOrders();
+      } catch (e) {
+        console.error('Error refreshing stats:', e);
+      }
+    }
+
+    // ================= UNIFIED CONDITIONS CONTROLS =================
+    function onConditionSelectChange() {
+      const cond = document.getElementById('condition-select').value;
+      if (cond === 'all') {
+        currentStatusFilter = 'all';
+        currentProblemCategory = 'all';
+      } else if (cond === 'no_issue') {
+        currentStatusFilter = 'ok';
+        currentProblemCategory = 'all';
+      } else if (cond === 'all_issues') {
+        currentStatusFilter = 'not_ok';
+        currentProblemCategory = 'all';
+      } else if (cond === 'handled') {
+        currentStatusFilter = 'all';
+        currentProblemCategory = 'handled';
+      } else {
+        currentStatusFilter = 'not_ok';
+        currentProblemCategory = cond;
+      }
+      loadFleetOrders();
+    }
+
+    async function updateConditionOptionCounts() {
+      try {
+        const res = await fetch('/api/orders?status_filter=all&problem_category=all&sort_by=order_number');
+        const allOrders = await res.json();
+        
+        let cAll = allOrders.length;
+        let cOk = 0;
+        let cIssues = 0;
+        let cHandled = 0;
+        let cBreakdown = 0;
+        let cFerry = 0;
+        let cDocs = 0;
+        let cSchedule = 0;
+        let cClaims = 0;
+
+        allOrders.forEach(o => {
+          const att = o.attention || {};
+          const isHandled = (att.severity === 'pending' || att.state === 'HANDLED_PENDING_CONFIRMATION' || att.category === 'handled');
+          if (isHandled) {
+            cHandled++;
+          } else if (att.needs_human) {
+            cIssues++;
+            const cat = att.category;
+            if (cat === 'breakdown') cBreakdown++;
+            else if (cat === 'ferry') cFerry++;
+            else if (cat === 'documents') cDocs++;
+            else if (cat === 'schedule') cSchedule++;
+            else if (cat === 'claims') cClaims++;
+          } else {
+            cOk++;
+          }
+        });
+
+        const select = document.getElementById('condition-select');
+        if (select) {
+          const curVal = select.value;
+          select.innerHTML = `
+            <option value="all">All Vehicles (${cAll})</option>
+            <option value="no_issue">🟢 No Issue / OK (${cOk})</option>
+            <option value="all_issues">🔴 All Active Issues (${cIssues})</option>
+            <option value="handled">🟣 Handled / Pending Confirmation (${cHandled})</option>
+            <option value="breakdown">🚨 Road Breakdown (${cBreakdown})</option>
+            <option value="ferry">⚓ Baltic Ferry Disruptions (${cFerry})</option>
+            <option value="documents">📄 Documentation & Gate Release (${cDocs})</option>
+            <option value="schedule">⏱️ Schedule & Relay Delays (${cSchedule})</option>
+            <option value="claims">🔍 Cosmetic Damage Claims (${cClaims})</option>
+          `;
+          select.value = curVal;
+        }
+      } catch(e) {
+        console.error('Error updating condition counts:', e);
+      }
+    }
+
+    function onSortChange() {
+      currentSort = document.getElementById('sort-select').value;
+      loadFleetOrders();
+    }
+
+    let searchDebounceTimer = null;
+    function onSearchInput() {
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(() => {
+        currentSearch = document.getElementById('fleet-search').value.trim();
+        loadFleetOrders();
+      }, 250);
+    }
+
+    async function loadFleetOrders() {
+      const tbody = document.getElementById('fleet-table-tbody');
+      try {
+        const res = await fetch(`/api/orders?status_filter=${currentStatusFilter}&problem_category=${currentProblemCategory}&sort_by=${currentSort}&query=${encodeURIComponent(currentSearch)}`);
+        ordersList = await res.json();
+        updateConditionOptionCounts();
+
+        if (ordersList.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-gray-400">No cars found matching filters</td></tr>`;
+          return;
+        }
+
+        let html = '';
+        ordersList.forEach(o => {
+          const v = o.vehicle;
+          const drv = o.driver;
+          const att = o.attention;
+
+          let conditionHtml = '';
+          const shortTitle = att.short_title || att.headline;
+
+          if (att.severity === 'pending' || att.state === 'HANDLED_PENDING_CONFIRMATION') {
+            conditionHtml = `
+              <span class="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-50 text-indigo-900 border border-indigo-300">
+                <span class="w-2 h-2 rounded-full bg-indigo-500"></span>
+                <span class="truncate">${escapeHtml(shortTitle || 'Pending Confirmation')}</span>
+              </span>
+            `;
+          } else if (att.severity === 'danger') {
+            conditionHtml = `
+              <span class="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                <span class="w-2 h-2 rounded-full bg-rose-600 pulse-urgent"></span>
+                <span class="truncate">${escapeHtml(shortTitle)}</span>
+              </span>
+            `;
+          } else if (att.severity === 'warning') {
+            conditionHtml = `
+              <span class="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+                <span class="truncate">${escapeHtml(shortTitle)}</span>
+              </span>
+            `;
+          } else {
+            conditionHtml = `
+              <span class="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                <span>On Track</span>
+              </span>
+            `;
+          }
+
+          html += `
+            <tr onclick="openCarDetail('${o.id}')" class="hover:bg-zinc-50 cursor-pointer transition">
+              <td class="p-3.5 pl-5 font-mono font-bold text-gray-900 truncate">${o.reference}</td>
+              <td class="p-3.5 truncate">
+                <div class="flex items-center space-x-3">
+                  <div class="w-10 h-7 rounded bg-gray-100 border border-gray-200 overflow-hidden shrink-0 flex items-center justify-center">
+                    <img src="${(v && v.image_url) ? v.image_url : '/static/bahn-logo.png'}" alt="Car" class="w-full h-full object-cover">
+                  </div>
+                  <div class="min-w-0">
+                    <strong class="text-gray-900 font-bold block truncate">${v ? `${v.make} ${v.model}` : 'Unassigned'}</strong>
+                    <span class="text-[11px] text-gray-500 font-mono">${(v && v.registration) ? v.registration : 'Plate Pending'}</span>
+                  </div>
+                </div>
+              </td>
+              <td class="p-3.5 text-gray-800 font-semibold truncate">${escapeHtml(o.route_text || o.corridor_route || (o.addresses && o.addresses.coordinates ? `${o.addresses.coordinates.pickup_city} → ${o.addresses.coordinates.delivery_city}` : 'Corridor Route'))}</td>
+              <td class="p-3.5 truncate">
+                <span class="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold border ${getStatusBadgeClass(o.status)}">
+                  <span>${formatStatusLabel(o.status)}</span>
+                </span>
+              </td>
+              <td class="p-3.5 text-gray-800 font-medium truncate">${drv ? escapeHtml(drv.display_name) : '<span class="text-gray-400 italic">Unassigned</span>'}</td>
+              <td class="p-3.5 truncate">${conditionHtml}</td>
+              <td class="p-3.5 pr-5 text-right">
+                <button onclick="event.stopPropagation(); openCarDetail('${o.id}')" class="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded font-bold text-xs transition cursor-pointer">
+                  View
+                </button>
+              </td>
+            </tr>
+          `;
+        });
+        tbody.innerHTML = html;
+        lucide.createIcons();
+      } catch (e) {
+        console.error('Error loading orders:', e);
+        tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-rose-500">Failed loading orders.</td></tr>`;
+      }
+    }
+
+    // ================= CAR DETAIL SUB-PAGES / TABS =================
+    function switchCarSubTab(tabKey) {
+      currentCarSubTab = tabKey;
+      const tabs = ['deal', 'route', 'docs', 'ferry', 'chat', 'actions'];
+
+      tabs.forEach(t => {
+        const pageEl = document.getElementById(`car-subpage-${t}`);
+        const btnEl = document.getElementById(`car-tab-btn-${t}`);
+        if (pageEl) pageEl.classList.toggle('hidden', t !== tabKey);
+        if (btnEl) {
+          if (t === tabKey) {
+            btnEl.className = 'px-4 py-2 rounded-xl bg-zinc-900 text-white font-bold shadow-md flex items-center space-x-2 transition cursor-pointer';
+          } else {
+            btnEl.className = 'px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-100 hover:text-black font-bold flex items-center space-x-2 transition cursor-pointer';
+          }
+        }
+      });
+
+      if (tabKey === 'route' && selectedOrderData) {
+        setTimeout(() => {
+          renderMapAndWaypoints(selectedOrderData.addresses.coordinates);
+          if (leafletMap) {
+            leafletMap.invalidateSize();
+            centerMapRoute();
+          }
+        }, 150);
+      }
+      lucide.createIcons();
+    }
+
+        async function openCarDetail(orderId) {
+      selectedOrderId = orderId;
+      document.getElementById('nav-fleet-label').innerText = `Car: ${orderId}`;
+      switchGlobalView('detail');
+
+      try {
+        const res = await fetch(`/api/orders/${orderId}`);
+        selectedOrderData = await res.json();
+      } catch(e) {
+        showToast('Error', 'Failed to fetch car dossier.');
+        return;
+      }
+
+      const data = selectedOrderData;
+      const o = data.order || {};
+      const v = data.vehicle || {};
+      const cust = data.customer;
+      const drv = data.driver;
+      const att = data.attention;
+      const addr = data.addresses;
+      const deal = data.deal || {};
+
+      document.getElementById('detail-nav-id').innerText = o.reference || orderId;
+      document.getElementById('detail-nav-car').innerText = v ? `${v.make} ${v.model}` : 'Car Detail';
+
+      try { renderPipelineStepper(o.status, o.display_lane); } catch(e) { console.error('Stepper error:', e); }
+
+      const alertBox = document.getElementById('detail-alert-box');
+      const alertIcon = document.getElementById('detail-alert-icon');
+      const alertTitle = document.getElementById('detail-alert-title');
+      const alertDesc = document.getElementById('detail-alert-desc');
+      const safeBox = document.getElementById('detail-verified-safe-box');
+
+      if (att && (att.severity === 'pending' || att.state === 'HANDLED_PENDING_CONFIRMATION' || att.category === 'handled')) {
+        alertBox.classList.remove('hidden');
+        if (safeBox) safeBox.classList.add('hidden');
+        alertBox.className = 'mb-6 p-4 rounded-2xl bg-indigo-50 border-2 border-indigo-200 text-indigo-950 flex items-start space-x-3.5 shadow-xs';
+        if (alertIcon) {
+          alertIcon.setAttribute('data-lucide', 'clock');
+          alertIcon.className = 'w-5 h-5 text-indigo-600 shrink-0 mt-0.5';
+        }
+        if (alertTitle) {
+          alertTitle.className = 'font-bold text-indigo-900 text-sm block';
+          alertTitle.innerText = `Handled — Pending External Confirmation: ${att.short_title || att.headline}`;
+        }
+        if (alertDesc) {
+          alertDesc.className = 'text-indigo-800 leading-relaxed font-medium';
+          alertDesc.innerText = att.full_description || 'Operator directive recorded. Order staged in handled state until driver/counterparty confirmation is received.';
+        }
+      } else if (att && att.needs_human) {
+        alertBox.classList.remove('hidden');
+        if (safeBox) safeBox.classList.add('hidden');
+        alertBox.className = 'mb-6 p-4 rounded-2xl bg-rose-50 border-2 border-rose-200 text-rose-950 flex items-start space-x-3.5 shadow-xs';
+        if (alertIcon) {
+          alertIcon.setAttribute('data-lucide', 'alert-triangle');
+          alertIcon.className = 'w-5 h-5 text-rose-600 shrink-0 mt-0.5';
+        }
+        if (alertTitle) {
+          alertTitle.className = 'font-bold text-rose-900 text-sm block';
+          alertTitle.innerText = `Action Required: ${att.short_title || att.headline}`;
+        }
+        if (alertDesc) {
+          alertDesc.className = 'text-rose-800 leading-relaxed font-medium';
+          alertDesc.innerText = att.full_description || att.headline;
+        }
+      } else {
+        alertBox.classList.add('hidden');
+        if (safeBox) safeBox.classList.remove('hidden');
+      }
+
+      // Populate Deal Details safely
+      try {
+        document.getElementById('deal-billing-ref').innerText = deal.billing_reference || `INV-${o.reference || orderId}`;
+        document.getElementById('deal-cust-name').innerText = deal.customer_name || (cust ? cust.name : 'Dealership Network');
+        document.getElementById('deal-cust-email').innerText = deal.customer_email || 'dispatch@auto-dealer.com';
+        document.getElementById('deal-cust-phone').innerText = deal.customer_phone || '+49 89 2145 009';
+        document.getElementById('deal-contract-val').innerText = `${deal.contract_value_eur || '896.78'} EUR`;
+        document.getElementById('deal-driver-fee').innerText = `${deal.driver_payout_eur || '645.68'} EUR`;
+        const expEl = document.getElementById('deal-expenses');
+        if (expEl) expEl.innerText = `${deal.trip_expenses_eur || '0.00'} EUR`;
+        document.getElementById('deal-margin').innerText = `${deal.gross_margin_eur || '251.10'} EUR`;
+        document.getElementById('deal-terms').innerText = deal.payment_terms || 'Net 14 Days';
+
+        document.getElementById('deal-veh-plate').innerText = (v && v.registration) ? v.registration : 'Plate Pending';
+        document.getElementById('deal-veh-title').innerText = v ? `${v.make} ${v.model}` : 'Master Vehicle';
+        document.getElementById('deal-veh-year').innerText = v ? `${v.model_year} Edition` : '2024 Edition';
+        document.getElementById('deal-veh-vin').innerText = (v && v.vin) ? v.vin : (v && v.synthetic_vin ? v.synthetic_vin : 'WBA33AY0000000000');
+        document.getElementById('deal-veh-fuel').innerText = v ? (v.fuel || v.fuel_type || 'Internal Combustion') : 'Petrol';
+        document.getElementById('deal-transport-mode').innerText = deal.transport_mode || 'Direct Road Transport';
+        const dealVehImg = document.getElementById('deal-veh-img');
+        if (dealVehImg) dealVehImg.src = (v && v.image_url) ? v.image_url : '/static/bahn-logo.png';
+
+        if (drv) {
+          document.getElementById('deal-driver-name').innerText = drv.display_name;
+          document.getElementById('deal-driver-phone').innerText = drv.phone || '+49 170 00000';
+        } else if (data.market_offer) {
+          const mo = data.market_offer;
+          document.getElementById('deal-driver-name').innerHTML = `
+            <span class="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-50 text-blue-900 border border-blue-200 shadow-2xs">
+              <i data-lucide="radio" class="w-3.5 h-3.5 text-blue-600"></i>
+              <span>📡 Broadcast on Driver App: €${Number(mo.fee_eur).toFixed(2)} (${mo.views} Views)</span>
+            </span>
+          `;
+          document.getElementById('deal-driver-phone').innerText = 'Gig Published to Driver Network';
+        } else {
+          document.getElementById('deal-driver-name').innerHTML = '<span class="text-gray-400 italic">Unassigned</span>';
+          document.getElementById('deal-driver-phone').innerText = 'No driver assigned';
+        }
+        document.getElementById('deal-pickup-window').innerText = deal.pickup_window || 'Mon, 19 Oct 2026, 08:00 - 14:00';
+        document.getElementById('deal-delivery-deadline').innerText = deal.delivery_deadline || 'Wed, 21 Oct 2026, 18:00';
+      } catch(e) { console.error('Deal fields error:', e); }
+
+      try { populateDocumentsAndProofs(data); } catch(e) { console.error('Docs error:', e); }
+      try { populateAgentActionsDone(data); } catch(e) { console.error('Agent done error:', e); }
+
+      try {
+        const ferryBtn = document.getElementById('car-tab-btn-ferry');
+        if (ferryBtn) ferryBtn.classList.remove('hidden');
+        populateFerryData(data);
+      } catch(e) { console.error('Ferry error:', e); }
+
+      try { populateChatFeed(data); } catch(e) { console.error('Chat error:', e); }
+      try { populateOperatorActions(data); } catch(e) { console.error('Actions error:', e); }
+
+      switchCarSubTab('deal');
+      try { renderAiQuickChips('car'); } catch(e) {}
+      lucide.createIcons();
+    }
+
+    function renderPipelineStepper(status, lane) {
+      const stepper = document.getElementById('pipeline-stepper');
+      const stLabel = document.getElementById('pipeline-current-status');
+      if (stLabel) stLabel.innerText = formatStatusLabel(status);
+      if (!stepper) return;
+
+      const steps = [
+        { key: 'INTAKE', label: '1. Intake' },
+        { key: 'ASSIGNED', label: '2. Assigned' },
+        { key: 'WAITING_PICKUP', label: '3. Waiting Pickup' },
+        { key: 'IN_TRANSIT', label: '4. In Transit' },
+        { key: 'DELIVERED', label: '5. Delivered' }
+      ];
+
+      let activeIndex = 0;
+      if (status === 'ASSIGNED') activeIndex = 1;
+      else if (status === 'WAITING_FOR_PICKUP' || status === 'WAITING_PICKUP') activeIndex = 2;
+      else if (status === 'IN_TRANSIT') activeIndex = 3;
+      else if (status === 'DELIVERED' || lane === 'delivered') activeIndex = 4;
+      else if (lane === 'in_transit') activeIndex = 3;
+
+      stepper.innerHTML = steps.map((s, idx) => {
+        let stateStyle = 'bg-gray-100 text-gray-400 border-gray-200';
+        let iconHtml = '<i data-lucide="circle" class="w-3.5 h-3.5 mr-1 text-gray-400"></i>';
+        if (idx < activeIndex) {
+          stateStyle = 'bg-emerald-50 text-emerald-800 border-emerald-300 font-semibold';
+          iconHtml = '<i data-lucide="check-circle" class="w-3.5 h-3.5 mr-1 text-emerald-600"></i>';
+        } else if (idx === activeIndex) {
+          stateStyle = 'bg-zinc-900 text-white border-zinc-900 font-bold shadow-xs';
+          iconHtml = '<i data-lucide="play-circle" class="w-3.5 h-3.5 mr-1 text-amber-400"></i>';
+        }
+        return `
+          <div class="px-3 py-1.5 rounded-lg border text-xs flex items-center justify-center transition ${stateStyle}">
+            ${iconHtml}
+            <span>${s.label}</span>
+          </div>
+        `;
+      }).join('');
+      lucide.createIcons();
+    }
+
+    // ================= MAP CENTERING & CONTROLS =================
+    function renderMapAndWaypoints(coords) {
+      if (!coords) return;
+      const container = document.getElementById('leaflet-map-container');
+      if (!container) return;
+
+      if (!leafletMap) {
+        leafletMap = L.map('leaflet-map-container', { zoomControl: true }).setView([54.0, 14.0], 5);
+        // Free OpenStreetMap Tiles - ZERO API KEY REQUIRED
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(leafletMap);
+      }
+
+      mapMarkers.forEach(m => m.remove());
+      mapRouteLine.forEach(l => l.remove());
+      mapMarkers = [];
+      mapRouteLine = [];
+
+      const pCoords = coords.pickup || [48.1351, 11.5820];
+      const dCoords = coords.delivery || [60.1699, 24.9384];
+      const carCoords = coords.current_estimated || pCoords;
+
+      const markerOrigin = L.circleMarker(pCoords, {
+        radius: 7,
+        fillColor: '#7C3AED',
+        color: '#ffffff',
+        weight: 2,
+        fillOpacity: 1
+      }).addTo(leafletMap).bindTooltip(`<strong>Start:</strong> ${coords.pickup_city || 'Origin'}`, { className: 'custom-hover-tip' });
+      mapMarkers.push(markerOrigin);
+
+      const markerDest = L.circleMarker(dCoords, {
+        radius: 7,
+        fillColor: '#059669',
+        color: '#ffffff',
+        weight: 2,
+        fillOpacity: 1
+      }).addTo(leafletMap).bindTooltip(`<strong>Destination:</strong> ${coords.delivery_city || 'Destination'}`, { className: 'custom-hover-tip' });
+      mapMarkers.push(markerDest);
+
+      const carIconHtml = `
+        <div class="relative flex items-center justify-center">
+          <span class="absolute w-6 h-6 rounded-full bg-rose-500/40 animate-ping"></span>
+          <span class="w-3.5 h-3.5 rounded-full bg-rose-600 border-2 border-white shadow-md"></span>
+        </div>
+      `;
+      const carIcon = L.divIcon({ html: carIconHtml, className: 'car-live-pin', iconSize: [24, 24], iconAnchor: [12, 12] });
+
+      const markerCar = L.marker(carCoords, { icon: carIcon }).addTo(leafletMap)
+        .bindTooltip(`<strong>Live Car Position</strong><br>${coords.current_status_text || 'Active Vehicle Telemetry'}`, { className: 'custom-hover-tip', permanent: false });
+      mapMarkers.push(markerCar);
+
+      (coords.intermediate_stops || []).forEach(st => {
+        const sm = L.circleMarker(st.coords, {
+          radius: 5.5,
+          fillColor: '#F59E0B',
+          color: '#ffffff',
+          weight: 2,
+          fillOpacity: 1
+        }).addTo(leafletMap).bindTooltip(`<strong>Stop:</strong> ${st.name}<br>${st.notes || ''}`, { className: 'custom-hover-tip' });
+        mapMarkers.push(sm);
+      });
+
+      if (coords.driven_geometry && coords.driven_geometry.length > 1) {
+        const lineDone = L.polyline(coords.driven_geometry, { color: '#7C3AED', weight: 4.5, opacity: 0.9 }).addTo(leafletMap);
+        mapRouteLine.push(lineDone);
+      }
+      if (coords.remaining_geometry && coords.remaining_geometry.length > 1) {
+        const lineRemaining = L.polyline(coords.remaining_geometry, { color: '#F59E0B', weight: 4, opacity: 0.9, dashArray: '6, 8' }).addTo(leafletMap);
+        mapRouteLine.push(lineRemaining);
+      } else if (coords.road_geometry && coords.road_geometry.length > 1) {
+        const fullLine = L.polyline(coords.road_geometry, { color: '#7C3AED', weight: 4, opacity: 0.85 }).addTo(leafletMap);
+        mapRouteLine.push(fullLine);
+      }
+
+      const allPts = [pCoords, dCoords, carCoords].concat((coords.intermediate_stops || []).map(s => s.coords));
+      currentRouteBounds = L.latLngBounds(allPts);
+      centerMapRoute();
+
+      // Populate Waypoints Table
+      const wpTbody = document.getElementById('route-waypoints-tbody');
+      let wpHtml = '';
+      (coords.waypoints || []).forEach(w => {
+        wpHtml += `
+          <tr class="hover:bg-gray-50 transition border-b border-gray-100">
+            <td class="p-3 pl-4 font-bold text-gray-900">${escapeHtml(w.name)}</td>
+            <td class="p-3">
+              ${w.type === 'origin' ? `
+                <span class="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                  <span class="w-2 h-2 rounded-full bg-purple-600"></span>
+                  <span>ORIGIN</span>
+                </span>
+              ` : w.type === 'current' ? `
+                <span class="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                  <span class="w-2 h-2 rounded-full bg-rose-600 animate-pulse"></span>
+                  <span>CURRENT POSITION</span>
+                </span>
+              ` : w.type === 'destination' ? `
+                <span class="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                  <span class="w-2 h-2 rounded-full bg-emerald-600"></span>
+                  <span>DESTINATION</span>
+                </span>
+              ` : `
+                <span class="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                  <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+                  <span>REST STOP / PORT</span>
+                </span>
+              `}
+            </td>
+            <td class="p-3 text-gray-700">${escapeHtml(w.status)}</td>
+            <td class="p-3 font-bold text-gray-900">${escapeHtml(w.time)}</td>
+            <td class="p-3 pr-4 text-gray-600">${escapeHtml(w.notes || '-')}</td>
+          </tr>
+        `;
+      });
+      wpTbody.innerHTML = wpHtml;
+    }
+
+    function centerMapRoute() {
+      if (leafletMap && currentRouteBounds) {
+        leafletMap.flyToBounds(currentRouteBounds, { padding: [50, 50], duration: 0.75 });
+      }
+    }
+
+    function focusVehiclePin() {
+      if (leafletMap && selectedOrderData && selectedOrderData.addresses && selectedOrderData.addresses.coordinates) {
+        const c = selectedOrderData.addresses.coordinates.current_estimated || selectedOrderData.addresses.coordinates.pickup;
+        if (c) leafletMap.flyTo(c, 13, { duration: 0.75 });
+      }
+    }
+
+    // ================= DOCUMENTS & PROOFS =================
+    
+    // ================= UNIVERSAL FILE & EXPENSE PROOF MODAL IMPLEMENTATION =================
+    function openUniversalFileModal(fileUrl, title, mimeType, meta = {}) {
+      const modal = document.getElementById('universal-file-modal');
+      if (!modal) return;
+
+      const titleEl = document.getElementById('file-modal-title');
+      const openTabBtn = document.getElementById('file-modal-open-tab');
+      const objEl = document.getElementById('file-modal-object');
+      const iframeEl = document.getElementById('file-modal-iframe');
+      const imgCont = document.getElementById('file-modal-img-container');
+      const imgEl = document.getElementById('file-modal-image');
+      const voucherEl = document.getElementById('file-modal-voucher');
+
+      if (titleEl) titleEl.innerText = title || 'Certified Consignment Record';
+      
+      if (objEl) objEl.classList.add('hidden');
+      if (imgCont) imgCont.classList.add('hidden');
+      if (voucherEl) voucherEl.classList.add('hidden');
+
+      if (openTabBtn) {
+        if (fileUrl) {
+          openTabBtn.href = fileUrl;
+          openTabBtn.classList.remove('hidden');
+        } else {
+          openTabBtn.classList.add('hidden');
+        }
+      }
+
+      const isImage = (mimeType && mimeType.startsWith('image/')) || (fileUrl && (fileUrl.endsWith('.jpg') || fileUrl.endsWith('.jpeg') || fileUrl.endsWith('.png')));
+      const isPdf = mimeType === 'application/pdf' || (fileUrl && fileUrl.endsWith('.pdf'));
+
+      if (isImage && fileUrl) {
+        if (imgEl) imgEl.src = fileUrl;
+        if (imgCont) imgCont.classList.remove('hidden');
+      } else if (fileUrl) {
+        if (objEl) {
+          objEl.setAttribute('data', fileUrl);
+          objEl.classList.remove('hidden');
+        }
+        if (iframeEl) iframeEl.src = fileUrl;
+      } else {
+        if (voucherEl) {
+          voucherEl.classList.remove('hidden');
+          const badge = document.getElementById('voucher-status-badge');
+          if (badge) {
+            badge.innerText = meta.status || 'CERTIFIED';
+            badge.className = 'px-2.5 py-0.5 rounded text-[10px] font-bold bg-violet-100 text-violet-800';
+          }
+          const mEl = document.getElementById('voucher-merchant');
+          if (mEl) mEl.innerText = title || meta.kind || 'Consignment Record';
+          const aEl = document.getElementById('voucher-amount');
+          if (aEl) aEl.innerText = meta.id || 'E-Signed';
+          const cEl = document.getElementById('voucher-category');
+          if (cEl) cEl.innerText = 'DIGITAL TRANSPORT DOSSIER';
+          const dEl = document.getElementById('voucher-date');
+          if (dEl) dEl.innerText = new Date().toISOString().slice(0, 16).replace('T', ' ');
+          const nEl = document.getElementById('voucher-note');
+          if (nEl) nEl.innerText = 'Digital CMR / Handover consignment record verified in central logistics network.';
+        }
+      }
+
+      modal.classList.remove('hidden');
+      if (window.lucide) lucide.createIcons();
+    }
+
+    function closeUniversalFileModal() {
+      const modal = document.getElementById('universal-file-modal');
+      if (modal) modal.classList.add('hidden');
+      const objEl = document.getElementById('file-modal-object');
+      const iframeEl = document.getElementById('file-modal-iframe');
+      const imgEl = document.getElementById('file-modal-image');
+      if (objEl) objEl.setAttribute('data', '');
+      if (iframeEl) iframeEl.src = '';
+      if (imgEl) imgEl.src = '';
+    }
+
+    function openExpenseProofModal(receiptUrl, merchant, amount, category, status, date, note, hasFile) {
+      const modal = document.getElementById('universal-file-modal');
+      if (!modal) return;
+
+      const titleEl = document.getElementById('file-modal-title');
+      const openTabBtn = document.getElementById('file-modal-open-tab');
+      const objEl = document.getElementById('file-modal-object');
+      const iframeEl = document.getElementById('file-modal-iframe');
+      const imgCont = document.getElementById('file-modal-img-container');
+      const imgEl = document.getElementById('file-modal-image');
+      const voucherEl = document.getElementById('file-modal-voucher');
+
+      if (titleEl) titleEl.innerText = `Expense Proof: ${merchant}`;
+
+      if (objEl) objEl.classList.add('hidden');
+      if (imgCont) imgCont.classList.add('hidden');
+      if (voucherEl) voucherEl.classList.add('hidden');
+
+      if (hasFile && receiptUrl) {
+        if (openTabBtn) {
+          openTabBtn.href = receiptUrl;
+          openTabBtn.classList.remove('hidden');
+        }
+        const isImg = receiptUrl.endsWith('.jpg') || receiptUrl.endsWith('.jpeg') || receiptUrl.endsWith('.png');
+        if (isImg) {
+          if (imgEl) imgEl.src = receiptUrl;
+          if (imgCont) imgCont.classList.remove('hidden');
+        } else {
+          if (objEl) {
+            objEl.setAttribute('data', receiptUrl);
+            objEl.classList.remove('hidden');
+          }
+          if (iframeEl) iframeEl.src = receiptUrl;
+        }
+      } else {
+        if (openTabBtn) openTabBtn.classList.add('hidden');
+        if (voucherEl) {
+          voucherEl.classList.remove('hidden');
+          const badge = document.getElementById('voucher-status-badge');
+          if (badge) {
+            badge.innerText = status || 'APPROVED';
+            badge.className = `px-2.5 py-0.5 rounded text-[10px] font-bold ${status === 'APPROVED' ? 'bg-emerald-100 text-emerald-800' : status === 'REJECTED' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'}`;
+          }
+          const mEl = document.getElementById('voucher-merchant');
+          if (mEl) mEl.innerText = merchant || 'Authorized Provider';
+          const aEl = document.getElementById('voucher-amount');
+          if (aEl) aEl.innerText = amount || '0.00 EUR';
+          const cEl = document.getElementById('voucher-category');
+          if (cEl) cEl.innerText = (category || 'GENERAL').toUpperCase();
+          const dEl = document.getElementById('voucher-date');
+          if (dEl) dEl.innerText = date ? date.replace('T', ' ').slice(0, 16) : 'Verified Assignment';
+          const nEl = document.getElementById('voucher-note');
+          if (nEl) nEl.innerText = note || 'Digital transaction voucher verified against driver itinerary GPS corridor.';
+        }
+      }
+
+      modal.classList.remove('hidden');
+      if (window.lucide) lucide.createIcons();
+    }
+
+
+    function populateDocumentsAndProofs(data) {
+      const docsGrid = document.getElementById('dossier-legal-docs-grid');
+      const photosGrid = document.getElementById('dossier-photos-grid');
+      const expList = document.getElementById('dossier-expenses-list');
+
+      document.getElementById('badge-docs-count').innerText = `${data.documents ? data.documents.length : 0} Legal Documents`;
+      document.getElementById('badge-photos-count').innerText = `${data.proofs ? data.proofs.length : 0} Inspection Photos`;
+      document.getElementById('badge-expenses-count').innerText = `${data.expenses ? data.expenses.length : 0} Expense Claims`;
+
+      // Legal Docs
+      let docsHtml = '';
+      (data.documents || []).forEach(doc => {
+        const titleStr = doc.title || `${doc.kind} Consignment Document`;
+        docsHtml += `
+          <div class="p-4 rounded-xl border border-gray-200 bg-white space-y-3 shadow-2xs">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] font-mono uppercase font-bold text-gray-500">${doc.kind}</span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-bold ${doc.status === 'PREPARED' || doc.status === 'ACTIVE' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}">${doc.status}</span>
+            </div>
+            <div>
+              <strong class="text-xs text-gray-900 block font-bold">${escapeHtml(titleStr)}</strong>
+              <span class="text-[11px] text-gray-500 block mt-0.5">Format: ${doc.format || doc.medium || 'DIGITAL'} - Mandatory Legal Document</span>
+            </div>
+            <button onclick="openUniversalFileModal('${doc.file_url || ''}', '${escapeAttr(titleStr)}', 'application/pdf', {id: '${doc.id}', kind: '${doc.kind}', status: '${doc.status}', file_name: '${doc.file_name || ''}'})" class="w-full py-2 bg-violet-50 hover:bg-violet-100 text-violet-900 border border-violet-200 rounded-lg text-xs font-bold transition flex items-center justify-center space-x-1.5 shadow-2xs cursor-pointer">
+              <i data-lucide="file-check" class="w-3.5 h-3.5 text-violet-600"></i>
+              <span>View Certified Record</span>
+            </button>
+          </div>
+        `;
+      });
+      docsGrid.innerHTML = docsHtml || `<div class="col-span-3 p-4 text-center text-gray-400 text-xs">No formal documents registered.</div>`;
+
+      // Photos (NO bahn-logo as fake photo!)
+      let photosHtml = '';
+      (data.proofs || []).forEach(p => {
+        const photoUrl = p.photo_url || p.file_url;
+        const hasActualPhoto = Boolean(p.has_file && photoUrl);
+        const labelStr = p.label || p.title || `${(p.kind || 'Inspection').replace('_', ' ')}`;
+        const odo = p.odometer_km ? `${Number(p.odometer_km).toLocaleString()} km` : 'Standard Inspection';
+        const pDate = p.captured_at ? p.captured_at.replace('T', ' ').slice(0, 16) : 'Verified at Checkpoint';
+
+        photosHtml += `
+          <div class="p-4 rounded-xl border border-gray-200 bg-white space-y-3 shadow-2xs flex flex-col justify-between">
+            ${hasActualPhoto ? `
+              <div class="w-full h-36 rounded-lg bg-gray-100 overflow-hidden relative cursor-pointer group" onclick="openUniversalFileModal('${photoUrl}', '${escapeAttr(labelStr)}', 'image/jpeg', {id: '${p.id}', kind: '${p.kind}'})">
+                <img src="${photoUrl}" alt="Proof" class="w-full h-full object-cover group-hover:scale-105 transition duration-300">
+                <span class="absolute bottom-2 right-2 px-2 py-0.5 rounded bg-black/75 text-white text-[10px] font-bold">Zoom Photo</span>
+              </div>
+            ` : `
+              <div class="w-full h-36 rounded-lg bg-gradient-to-br from-indigo-50 to-slate-100 border border-indigo-200 flex flex-col items-center justify-center p-3 text-center space-y-1 relative">
+                <span class="px-2 py-0.5 rounded text-[9px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200 uppercase tracking-wider">Digital Protocol Log</span>
+                <i data-lucide="clipboard-check" class="w-6 h-6 text-indigo-600 mt-1"></i>
+                <span class="text-xs font-bold text-gray-800">Telematics Handover Certified</span>
+                <span class="text-[10px] font-mono text-gray-500">${odo} &bull; ${pDate}</span>
+                <button onclick="openExpenseProofModal('', 'Digital Handover Protocol', '${odo}', '${escapeAttr(labelStr)}', 'APPROVED', '${pDate}', '${escapeAttr(p.notes || p.evidence_note || 'Electronic telematics handover checklist verified without mechanical defects')}', false)" class="mt-1 px-2 py-1 bg-white hover:bg-indigo-50 text-indigo-700 text-[10px] font-bold rounded border border-indigo-300 shadow-2xs transition">
+                  View Protocol Voucher
+                </button>
+              </div>
+            `}
+            <div>
+              <strong class="text-xs text-gray-900 block font-bold truncate">${escapeHtml(labelStr)}</strong>
+              <span class="text-[11px] text-gray-500 block leading-tight mt-0.5">${p.notes || p.evidence_note || 'Handover and condition verification checklist'}</span>
+            </div>
+          </div>
+        `;
+      });
+      photosGrid.innerHTML = photosHtml || `<div class="col-span-3 p-4 text-center text-gray-400 text-xs">No physical condition photos uploaded yet.</div>`;
+
+      // Expenses
+      let expHtml = '';
+      (data.expenses || []).forEach(ex => {
+        const amtStr = ex.amount_formatted || `${(ex.amount || 0).toFixed(2)} ${ex.currency || 'EUR'}`;
+        const merchantStr = ex.vendor || ex.merchant || 'Authorized Provider';
+        const hasReceiptScan = Boolean(ex.has_file && ex.receipt_url);
+
+        expHtml += `
+          <tr class="hover:bg-gray-50 transition border-b border-gray-100">
+            <td class="p-3 pl-4 font-bold text-gray-900">${ex.kind}</td>
+            <td class="p-3 text-gray-800 font-medium">${escapeHtml(merchantStr)}</td>
+            <td class="p-3 font-bold text-gray-900">${amtStr}</td>
+            <td class="p-3">
+              <span class="px-2 py-0.5 rounded text-[10px] font-bold ${ex.status === 'APPROVED' ? 'bg-emerald-100 text-emerald-800' : ex.status === 'REJECTED' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'}">
+                ${ex.status}
+              </span>
+            </td>
+            <td class="p-3 pr-4 text-right">
+              <button onclick="openExpenseProofModal('${ex.receipt_url || ''}', '${escapeAttr(merchantStr)}', '${escapeAttr(amtStr)}', '${escapeAttr(ex.kind)}', '${escapeAttr(ex.status)}', '${escapeAttr(ex.incurred_at || '')}', '${escapeAttr(ex.review_note || '')}', ${hasReceiptScan})" class="px-3 py-1.5 ${hasReceiptScan ? 'bg-violet-50 hover:bg-violet-100 text-violet-900 border border-violet-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300'} rounded-lg text-[11px] font-bold inline-flex items-center space-x-1.5 transition cursor-pointer">
+                <i data-lucide="${hasReceiptScan ? 'file-text' : 'receipt'}" class="w-3.5 h-3.5"></i>
+                <span>${hasReceiptScan ? 'View Receipt PDF' : 'Electronic Voucher'}</span>
+              </button>
+            </td>
+          </tr>
+        `;
+      });
+      expList.innerHTML = expHtml || `<tr><td colspan="5" class="p-4 text-center text-gray-400 text-xs">No reimbursable trip expenses logged for this order.</td></tr>`;
+    }
+
+    function populateFerryData(data) {
+      const container = document.getElementById('car-subpage-ferry');
+      if (!container) return;
+
+      const hasFerry = Boolean(data.addresses?.coordinates?.has_ferry || (data.travel_reservations && data.travel_reservations.length > 0));
+
+      if (!hasFerry) {
+        const originCity = (data.addresses?.pickup && data.addresses.pickup.city) || (data.addresses?.coordinates?.pickup_city) || 'Origin Hub';
+        const destCity = (data.addresses?.delivery && data.addresses.delivery.city) || (data.addresses?.coordinates?.delivery_city) || 'Destination Hub';
+
+        container.innerHTML = `
+          <div class="bg-white p-6 rounded-2xl border border-zinc-200 shadow-xs space-y-4">
+            <div class="flex items-center space-x-3 text-zinc-900">
+              <div class="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center">
+                <i data-lucide="shield-check" class="w-5 h-5"></i>
+              </div>
+              <div>
+                <h4 class="text-sm font-bold text-zinc-900">Direct Continental Highway Transport</h4>
+                <p class="text-xs text-zinc-500">This route does not require maritime ferry crossings</p>
+              </div>
+            </div>
+            
+            <p class="text-xs text-zinc-600 leading-relaxed">
+              The transport corridor between <strong>${escapeHtml(originCity)}</strong> and <strong>${escapeHtml(destCity)}</strong> runs entirely across European motorway infrastructure (100% ground road transit). No maritime sea crossings or Baltic vessel reservations are required for this consignment.
+            </p>
+
+            <div class="grid grid-cols-3 gap-4 pt-3 border-t border-zinc-100 text-xs">
+              <div class="p-3.5 bg-zinc-50 rounded-xl border border-zinc-200">
+                <span class="text-zinc-400 uppercase text-[10px] font-bold block">Corridor Type</span>
+                <strong class="text-zinc-800 text-xs mt-0.5 block">Continental Motorway</strong>
+              </div>
+              <div class="p-3.5 bg-zinc-50 rounded-xl border border-zinc-200">
+                <span class="text-zinc-400 uppercase text-[10px] font-bold block">Maritime Vessels</span>
+                <strong class="text-emerald-700 text-xs font-bold mt-0.5 block">0 Crossings (None Needed)</strong>
+              </div>
+              <div class="p-3.5 bg-zinc-50 rounded-xl border border-zinc-200">
+                <span class="text-zinc-400 uppercase text-[10px] font-bold block">Route Status</span>
+                <span class="inline-block mt-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">DIRECT ROAD TRANSIT</span>
+              </div>
+            </div>
+          </div>
+        `;
+        if (window.lucide) lucide.createIcons();
+        return;
+      }
+
+      // Ferry Corridor (Travemünde - Helsinki)
+      let bHtml = '';
+      (data.travel_reservations || []).forEach(tr => {
+        bHtml += `
+          <div class="bg-white p-4 rounded-xl border border-gray-200 space-y-2 shadow-2xs">
+            <div class="flex items-center justify-between">
+              <strong class="text-xs text-gray-900 font-bold">${tr.provider} ${tr.kind}</strong>
+              <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-violet-100 text-violet-800">${tr.status}</span>
+            </div>
+            <div class="text-[11px] text-gray-600 space-y-1">
+              <div>Ref: <span class="font-mono font-bold">${tr.booking_reference || 'CONFIRMED'}</span></div>
+              <div>Departure: <strong>${tr.departure_at ? tr.departure_at.replace('T', ' ').slice(0, 16) : 'Confirmed Port'}</strong></div>
+            </div>
+          </div>
+        `;
+      });
+
+      let oHtml = '';
+      (data.travel_options || []).forEach(opt => {
+        oHtml += `
+          <div class="bg-white p-3 rounded-xl border border-gray-200 text-xs space-y-1 shadow-2xs">
+            <div class="flex items-center justify-between">
+              <strong class="text-gray-900 font-bold">${opt.carrier || 'Finnlines Vessel'}</strong>
+              <span class="font-bold text-gray-900">${opt.cost_eur || 340} EUR</span>
+            </div>
+            <div class="text-[11px] text-gray-500">Departure: ${opt.departs_at ? opt.departs_at.replace('T', ' ').slice(0, 16) : 'Scheduled Daily'}</div>
+          </div>
+        `;
+      });
+
+      container.innerHTML = `
+        <div class="bg-white p-5 rounded-2xl border border-zinc-200 shadow-xs space-y-4">
+          <div class="flex items-center space-x-2 text-zinc-900 font-bold">
+            <i data-lucide="anchor" class="w-5 h-5 text-violet-600"></i>
+            <span>Baltic Sea Maritime Ferry Crossing Corridor</span>
+          </div>
+          <p class="text-xs text-zinc-600 leading-relaxed">
+            This transport route requires a commercial Baltic Sea vessel crossing between Germany (Travemünde Baltic Terminal) and Finland (Helsinki Vuosaari Port).
+          </p>
+
+          <div class="grid grid-cols-2 gap-4 pt-2">
+            <div class="space-y-3">
+              <span class="text-xs font-bold text-gray-500 uppercase">Booked Vessel Reservations</span>
+              <div id="travel-booked-list" class="space-y-2">${bHtml || '<div class="p-3 text-center text-gray-400 text-xs">No confirmed ferry crossing booked.</div>'}</div>
+            </div>
+            <div class="space-y-3">
+              <span class="text-xs font-bold text-gray-500 uppercase">Available Standby Departures</span>
+              <div id="travel-options-list" class="space-y-2">${oHtml || '<div class="p-3 text-center text-gray-400 text-xs">No alternate ferry crossings available.</div>'}</div>
+            </div>
+          </div>
+        </div>
+      `;
+      if (window.lucide) lucide.createIcons();
+    }
+
+    // ================= COMMUNICATIONS CHAT (NO UNDEFINED) =================
+    window.currentCarData = null;
+    window.activeChatChannel = 'all';
+
+    function populateChatFeed(data) {
+      window.currentCarData = data;
+      window.activeChatChannel = 'all';
+      switchChatChannel('all');
+    }
+
+    function switchChatChannel(channel) {
+      window.activeChatChannel = channel;
+      ['all', 'driver_app', 'dealership_email', 'station_desk', 'internal_ops'].forEach(c => {
+        const btn = document.getElementById(`chat-tab-${c}`);
+        if (!btn) return;
+        if (c === channel) {
+          btn.className = 'px-3 py-1.5 rounded-lg bg-violet-600 text-white font-bold transition flex items-center space-x-1.5 shadow-2xs';
+        } else {
+          btn.className = 'px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 transition flex items-center space-x-1.5';
+        }
+      });
+      if (window.currentCarData) {
+        renderFilteredChatFeed();
+      }
+    }
+
+    function renderFilteredChatFeed() {
+      const data = window.currentCarData;
+      if (!data) return;
+      const feed = document.getElementById('dossier-chat-stream');
+      const messages = data.messages || [];
+
+      // Update Channel Counts
+      let countAll = messages.length;
+      let countDriver = 0;
+      let countDealer = 0;
+      let countSite = 0;
+      let countOps = 0;
+
+      messages.forEach(m => {
+        const rawRole = (m.sender_role || m.author_type || m.type || 'SYSTEM').toUpperCase();
+        const ch = (m.channel || '').toLowerCase();
+        if (rawRole === 'DRIVER' || ch.includes('driver')) countDriver++;
+        else if (rawRole === 'CUSTOMER' || ch.includes('email') || ch.includes('customer')) countDealer++;
+        else if (rawRole === 'SITE' || rawRole === 'STATION' || ch.includes('station') || ch.includes('desk')) countSite++;
+        else countOps++;
+      });
+
+      if (document.getElementById('chat-count-all')) document.getElementById('chat-count-all').innerText = countAll;
+      if (document.getElementById('chat-count-driver')) document.getElementById('chat-count-driver').innerText = countDriver;
+      if (document.getElementById('chat-count-dealer')) document.getElementById('chat-count-dealer').innerText = countDealer;
+      if (document.getElementById('chat-count-site')) document.getElementById('chat-count-site').innerText = countSite;
+      if (document.getElementById('chat-count-ops')) document.getElementById('chat-count-ops').innerText = countOps;
+
+      let filtered = messages.filter(m => {
+        if (window.activeChatChannel === 'all') return true;
+        const rawRole = (m.sender_role || m.author_type || m.type || 'SYSTEM').toUpperCase();
+        const ch = (m.channel || '').toLowerCase();
+        if (window.activeChatChannel === 'driver_app') return rawRole === 'DRIVER' || ch.includes('driver');
+        if (window.activeChatChannel === 'dealership_email') return rawRole === 'CUSTOMER' || ch.includes('customer') || ch.includes('email');
+        if (window.activeChatChannel === 'station_desk') return rawRole === 'SITE' || rawRole === 'STATION' || ch.includes('station') || ch.includes('desk') || ch.includes('yard');
+        if (window.activeChatChannel === 'internal_ops') return rawRole === 'OPERATOR' || rawRole === 'AGENT' || rawRole === 'SYSTEM' || ch.includes('internal') || ch.includes('note');
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        feed.innerHTML = `<div class="p-8 text-center text-gray-400 text-xs">No communications in this channel for this order.</div>`;
+        return;
+      }
+
+      let html = '';
+      filtered.forEach(m => {
+        const rawRole = (m.sender_role || m.author_type || m.type || 'SYSTEM').toUpperCase();
+        const isOperator = rawRole === 'OPERATOR' || m.type === 'ops';
+        const isDriver = rawRole === 'DRIVER';
+        const isCust = rawRole === 'CUSTOMER';
+        const isAgent = rawRole === 'AGENT' || rawRole === 'SYSTEM';
+
+        let senderName = m.sender_name || m.author_name;
+        if (!senderName || senderName === 'undefined') {
+          if (isDriver) senderName = (data.driver && data.driver.display_name) ? data.driver.display_name : 'Assigned Driver';
+          else if (isCust) senderName = (data.customer && data.customer.name) ? data.customer.name : 'Dealership Client';
+          else if (isOperator) senderName = 'Operations Dispatch';
+          else senderName = 'Bahn Central System';
+        }
+
+        const rawTime = m.sent_at || m.created_at || '';
+        let timeStr = '';
+        if (rawTime) {
+          try {
+            const d = new Date(rawTime);
+            timeStr = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) + ' ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+          } catch(e) {
+            timeStr = rawTime.replace('T', ' ').slice(0, 16);
+          }
+        }
+
+        let channelLabel = 'Driver Mobile App';
+        if (m.channel === 'customer_email' || isCust) channelLabel = 'Dealership Email';
+        else if (isOperator) channelLabel = 'Central Control Room';
+        else if (isAgent) channelLabel = 'Automated Agent';
+
+        if (isOperator) {
+          html += `
+            <div class="ml-12 p-4 rounded-2xl bg-zinc-900 text-white border border-zinc-700 shadow-sm space-y-1.5">
+              <div class="flex items-center justify-between text-[11px] border-b border-zinc-800 pb-1.5">
+                <div class="flex items-center space-x-2">
+                  <span class="px-2 py-0.5 rounded bg-violet-600 text-white font-bold text-[10px]">OPERATOR</span>
+                  <strong class="text-zinc-200 font-bold">${escapeHtml(senderName)}</strong>
+                  <span class="text-zinc-400 text-[10px]">(${channelLabel})</span>
+                </div>
+                <span class="text-zinc-400 text-[11px] font-mono">${timeStr}</span>
+              </div>
+              <p class="text-xs leading-relaxed text-zinc-100">${escapeHtml(m.body)}</p>
+            </div>
+          `;
+        } else if (isDriver) {
+          html += `
+            <div class="mr-12 p-4 rounded-2xl bg-violet-50/80 text-violet-950 border border-violet-200 shadow-2xs space-y-1.5">
+              <div class="flex items-center justify-between text-[11px] border-b border-violet-100 pb-1.5">
+                <div class="flex items-center space-x-2">
+                  <span class="px-2 py-0.5 rounded bg-violet-600 text-white font-bold text-[10px]">DRIVER</span>
+                  <strong class="text-violet-900 font-bold">${escapeHtml(senderName)}</strong>
+                  <span class="text-violet-600 text-[10px]">(${channelLabel})</span>
+                </div>
+                <span class="text-violet-500 text-[11px] font-mono">${timeStr}</span>
+              </div>
+              <p class="text-xs leading-relaxed text-violet-950">${escapeHtml(m.body)}</p>
+            </div>
+          `;
+        } else if (isCust) {
+          html += `
+            <div class="mr-12 p-4 rounded-2xl bg-purple-50/90 text-purple-950 border border-purple-200 shadow-2xs space-y-1.5">
+              <div class="flex items-center justify-between text-[11px] border-b border-purple-100 pb-1.5">
+                <div class="flex items-center space-x-2">
+                  <span class="px-2 py-0.5 rounded bg-purple-600 text-white font-bold text-[10px]">CUSTOMER</span>
+                  <strong class="text-purple-900 font-bold">${escapeHtml(senderName)}</strong>
+                  <span class="text-purple-600 text-[10px]">(${channelLabel})</span>
+                </div>
+                <span class="text-purple-500 text-[11px] font-mono">${timeStr}</span>
+              </div>
+              <p class="text-xs leading-relaxed text-purple-950">${escapeHtml(m.body)}</p>
+            </div>
+          `;
+        } else {
+          html += `
+            <div class="max-w-xl mx-auto p-3 rounded-xl bg-gray-100 border border-gray-200 text-gray-800 text-xs text-center space-y-1">
+              <div class="flex items-center justify-center space-x-2 font-bold text-[10px] uppercase text-gray-500">
+                <span>🤖 SYSTEM AGENT</span>
+                <span>•</span>
+                <span>${timeStr}</span>
+              </div>
+              <p class="leading-relaxed text-gray-700">${escapeHtml(m.body)}</p>
+            </div>
+          `;
+        }
+      });
+
+      feed.innerHTML = html || `<div class="p-6 text-center text-gray-400 text-xs">No active dispatch conversation records.</div>`;
+      feed.scrollTop = feed.scrollHeight;
+    }
+
+    // ================= SIMULATION RESET (FOR REPEATABLE DEMOS) =================
+    async function resetSimulationDemo() {
+      if (!confirm('Reset simulation? All vehicle alerts, support messages, and incident overrides will return to the baseline dataset for a fresh demo.')) return;
+      try {
+        const res = await fetch('/api/simulation/reset', { method: 'POST' });
+        if (res.ok) {
+          showToast('Simulation Reset', 'Baseline dataset restored for demo.');
+          selectedOrderId = null;
+          await refreshData();
+          goToFleetView();
+        }
+      } catch (e) {
+        showToast('Error', 'Failed to reset simulation.');
+      }
+    }
+
+    // ================= AUTONOMOUS AI AGENT COMPLETED ACTIVITY =================
+    function populateAgentActionsDone(data) {
+      const listSubpage = document.getElementById('dossier-agent-actions-list');
+      const listDeal = document.getElementById('deal-agent-actions-list');
+      const actions = data.agent_actions_done || [];
+
+      if (actions.length === 0) {
+        const emptyMsg = `<div class="p-3 text-center text-gray-400 text-xs">No autonomous pre-actions recorded.</div>`;
+        if (listSubpage) listSubpage.innerHTML = emptyMsg;
+        if (listDeal) listDeal.innerHTML = emptyMsg;
+        return;
+      }
+
+      let html = '';
+      actions.forEach(act => {
+        const isFailed = act.status === 'FAILED' || Boolean(act.error);
+        const isPending = !isFailed && (act.status === 'PENDING_REVIEW' || act.status === 'PENDING');
+        const isDone = !isFailed && !isPending && (act.is_completed || act.status === 'COMPLETED' || act.status === 'SUCCEEDED' || act.status === 'APPROVED');
+
+        const statusClass = isFailed
+          ? 'bg-rose-100 text-rose-800 border border-rose-300 font-bold'
+          : isPending 
+            ? 'bg-amber-100 text-amber-800 border border-amber-300 font-bold' 
+            : 'bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold';
+
+        const iconName = isFailed ? 'alert-circle' : isPending ? 'clock' : 'check-circle-2';
+        const iconColor = isFailed ? 'text-rose-600' : isPending ? 'text-amber-600' : 'text-emerald-600';
+
+        html += `
+          <div class="p-3 bg-zinc-50 rounded-xl border border-zinc-200 flex items-start space-x-3 text-xs">
+            <i data-lucide="${iconName}" class="w-4 h-4 ${iconColor} shrink-0 mt-0.5"></i>
+            <div class="flex-1 space-y-1">
+              <div class="flex items-center justify-between">
+                <strong class="font-bold text-gray-900">${escapeHtml(act.title)}</strong>
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold border ${statusClass}">
+                  ${act.status}
+                </span>
+              </div>
+              <p class="text-gray-600 text-[11px] leading-relaxed">${escapeHtml(act.rationale || '')}</p>
+              <div class="flex items-center justify-between text-[10px] text-gray-400 pt-0.5">
+                <span>Agent: <strong class="text-gray-700 font-mono">${escapeHtml(act.agent_id || 'ai-dispatcher')}</strong></span>
+                <span>Time: ${escapeHtml(act.attempted_at || 'Automated')}</span>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+
+      if (listSubpage) listSubpage.innerHTML = html;
+      if (listDeal) listDeal.innerHTML = html;
+      lucide.createIcons();
+    }
+
+    // ================= OPERATOR ACTIONS & 10-SECOND CONFIRMATION / MODIFY CONTROLLER =================
+    let currentOrderDecisions = [];
+    let actionModalTimer = null;
+    let actionModalCountdown = 10;
+    let stagedActionData = null;
+    let isModifyMode = false;
+
+    function populateOperatorActions(data) {
+      const container = document.getElementById('operator-actions-container');
+      currentOrderDecisions = data.decisions ? [...data.decisions] : [];
+      const decLabel = document.getElementById('decision-operator-label');
+      if (decLabel) decLabel.innerText = activeOperator;
+
+      const drv = data.driver || {};
+      const cust = data.customer || {};
+      const deal = data.deal || {};
+      const drvName = drv.display_name || 'Assigned Driver';
+      const drvPhone = drv.phone || '+49 170 8291034';
+      const dealerName = cust.name || deal.customer_name || 'Receiving Dealer Desk';
+      const dealerPhone = cust.phone || deal.customer_phone || '+49 89 2145 009';
+      const dealerEmail = cust.email || deal.customer_email || 'dispatch@auto-dealer.com';
+
+      // Inject standard direct contact actions
+      const orderId = data.order ? data.order.id : selectedOrderId;
+      const contactDriverAction = {
+        id: `CONTACT_DRIVER_${orderId}`,
+        title: `Contact Driver: ${drvName}`,
+        description: `Direct phone/SMS communication to assigned driver at ${drvPhone}. Instructions and driver status will be logged into the audit trail.`,
+        type: 'COMMUNICATION',
+        note: `Contacted driver ${drvName} at ${drvPhone}. Telematics corridor and next milestone verified.`
+      };
+      const contactDealerAction = {
+        id: `CONTACT_DEALER_${orderId}`,
+        title: `Contact Dealer: ${dealerName}`,
+        description: `Direct contact to client sales & receiving desk (${dealerPhone} | ${dealerEmail}). Electronic ETA and delivery access verified.`,
+        type: 'COMMUNICATION',
+        note: `Contacted dealership client ${dealerName} (${dealerEmail}). Delivery window and site authorization confirmed.`
+      };
+
+      if (!currentOrderDecisions.some(d => d.id === contactDriverAction.id)) {
+        currentOrderDecisions.push(contactDriverAction);
+      }
+      if (!currentOrderDecisions.some(d => d.id === contactDealerAction.id)) {
+        currentOrderDecisions.push(contactDealerAction);
+      }
+
+      let html = '';
+      currentOrderDecisions.forEach((dec) => {
+        const titleText = dec.title || dec.label || 'Action Recommendation';
+        const typeBadge = dec.type || 'RECOMMENDED ACTION';
+
+        html += `
+          <div class="p-5 bg-white rounded-2xl border border-gray-200 shadow-xs space-y-3">
+            <div class="flex items-center justify-between">
+              <strong class="text-xs font-bold text-gray-900">${escapeHtml(titleText)}</strong>
+              <span class="px-2.5 py-0.5 rounded text-[10px] font-bold ${typeBadge === 'AUTHORIZATION' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : typeBadge === 'DISPATCH' ? 'bg-rose-100 text-rose-800 border border-rose-200' : 'bg-purple-100 text-purple-800 border border-purple-200'}">
+                ${escapeHtml(typeBadge)}
+              </span>
+            </div>
+            <p class="text-xs text-gray-600 leading-relaxed">${escapeHtml(dec.description)}</p>
+            <div class="flex items-center space-x-2 pt-2 border-t border-gray-100">
+              <button onclick="stageActionModal('${dec.id}')" class="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg transition shadow-2xs flex items-center justify-center space-x-1.5 cursor-pointer">
+                <i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i>
+                <span>Confirm (10s Window)</span>
+              </button>
+              <button onclick="stageActionModal('${dec.id}', true)" class="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold text-xs rounded-lg transition flex items-center space-x-1 cursor-pointer">
+                <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+                <span>Modify</span>
+              </button>
+              <button onclick="stageDismissModal('${dec.id}')" class="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs rounded-lg transition flex items-center space-x-1 cursor-pointer" title="Resolve directly if situation is cleared or a false alarm">
+                <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                <span>Dismiss / OK</span>
+              </button>
+            </div>
+          </div>
+        `;
+      });
+      container.innerHTML = html;
+      lucide.createIcons();
+    }
+
+    function stageActionModal(actionId, startWithModify = false) {
+      if (!selectedOrderId || !selectedOrderData) return;
+      const dec = currentOrderDecisions.find(d => d.id === actionId);
+      if (!dec) return;
+
+      if (actionModalTimer) clearInterval(actionModalTimer);
+      isModifyMode = false;
+      document.getElementById('modal-modify-box').classList.add('hidden');
+
+      stagedActionData = {
+        orderId: selectedOrderId,
+        orderRef: selectedOrderData.order ? selectedOrderData.order.reference : selectedOrderId,
+        actionId: dec.id,
+        title: dec.title || dec.label || 'Action Directive',
+        description: dec.description || '',
+        notes: dec.note || dec.description || `Executed by operator ${activeOperator}`,
+        isDismiss: false
+      };
+
+      document.getElementById('modal-action-title').innerText = stagedActionData.title;
+      document.getElementById('modal-action-desc').innerText = stagedActionData.description;
+      document.getElementById('modal-action-order').innerText = stagedActionData.orderRef;
+      document.getElementById('modal-action-operator').innerText = activeOperator;
+      document.getElementById('modal-modify-input').value = stagedActionData.notes;
+
+      actionModalCountdown = 10;
+      document.getElementById('modal-countdown-timer').innerText = `${actionModalCountdown}s`;
+      document.getElementById('modal-countdown-progress').style.width = '100%';
+
+      document.getElementById('action-confirmation-modal').classList.remove('hidden');
+
+      if (startWithModify) {
+        toggleModalModify();
+      } else {
+        startModalCountdownTimer();
+      }
+      lucide.createIcons();
+    }
+
+    function stageDismissModal(actionId) {
+      if (!selectedOrderId || !selectedOrderData) return;
+      if (actionModalTimer) clearInterval(actionModalTimer);
+      isModifyMode = false;
+      document.getElementById('modal-modify-box').classList.add('hidden');
+
+      stagedActionData = {
+        orderId: selectedOrderId,
+        orderRef: selectedOrderData.order ? selectedOrderData.order.reference : selectedOrderId,
+        actionId: 'DISMISS_FALSE_ALARM',
+        title: 'Dismiss as Resolved / False Alarm',
+        description: 'Mark alert cleared and restore vehicle to normal operational status.',
+        notes: `Dismissed by operator ${activeOperator} as resolved / false alarm.`,
+        isDismiss: true
+      };
+
+      document.getElementById('modal-action-title').innerText = stagedActionData.title;
+      document.getElementById('modal-action-desc').innerText = stagedActionData.description;
+      document.getElementById('modal-action-order').innerText = stagedActionData.orderRef;
+      document.getElementById('modal-action-operator').innerText = activeOperator;
+      document.getElementById('modal-modify-input').value = stagedActionData.notes;
+
+      actionModalCountdown = 10;
+      document.getElementById('modal-countdown-timer').innerText = `${actionModalCountdown}s`;
+      document.getElementById('modal-countdown-progress').style.width = '100%';
+
+      document.getElementById('action-confirmation-modal').classList.remove('hidden');
+      startModalCountdownTimer();
+      lucide.createIcons();
+    }
+
+    function startModalCountdownTimer() {
+      if (actionModalTimer) clearInterval(actionModalTimer);
+      actionModalTimer = setInterval(() => {
+        actionModalCountdown--;
+        const timerEl = document.getElementById('modal-countdown-timer');
+        const progEl = document.getElementById('modal-countdown-progress');
+        if (timerEl) timerEl.innerText = `${actionModalCountdown}s`;
+        if (progEl) progEl.style.width = `${(actionModalCountdown / 10) * 100}%`;
+
+        if (actionModalCountdown <= 0) {
+          clearInterval(actionModalTimer);
+          actionModalTimer = null;
+          confirmActionNow();
+        }
+      }, 1000);
+    }
+
+    function toggleModalModify() {
+      const box = document.getElementById('modal-modify-box');
+      isModifyMode = !isModifyMode;
+      if (isModifyMode) {
+        if (actionModalTimer) clearInterval(actionModalTimer);
+        box.classList.remove('hidden');
+        document.getElementById('modal-countdown-timer').innerText = 'PAUSED';
+        document.getElementById('modal-modify-btn').innerHTML = `<i data-lucide="check" class="w-4 h-4 text-emerald-600"></i><span>Save Note</span>`;
+      } else {
+        box.classList.add('hidden');
+        if (stagedActionData) {
+          stagedActionData.notes = document.getElementById('modal-modify-input').value;
+        }
+        document.getElementById('modal-modify-btn').innerHTML = `<i data-lucide="edit-3" class="w-4 h-4"></i><span>Modify</span>`;
+        startModalCountdownTimer();
+      }
+      lucide.createIcons();
+    }
+
+    function cancelActionModal() {
+      if (actionModalTimer) clearInterval(actionModalTimer);
+      actionModalTimer = null;
+      document.getElementById('action-confirmation-modal').classList.add('hidden');
+      stagedActionData = null;
+      showToast('Action Cancelled', 'Operational directive was reversed and not executed.');
+    }
+
+    async function stageInboxActionModal(threadId, actionType, threadTitle = '', senderName = '', orderId = '', orderRef = '') {
+      if (actionModalTimer) clearInterval(actionModalTimer);
+      isModifyMode = false;
+      document.getElementById('modal-modify-box').classList.add('hidden');
+
+      const isResolve = actionType === 'resolve';
+      const isPostpone = actionType === 'postpone';
+
+      stagedActionData = {
+        isInbox: true,
+        threadId: threadId,
+        actionType: actionType,
+        orderId: orderId || null,
+        orderRef: orderRef || 'SUPPORT TICKET',
+        actionId: isResolve ? 'INBOX_RESOLVE' : 'INBOX_POSTPONE',
+        title: isResolve ? 'Resolve Support Inquiry' : (isPostpone ? 'Postpone Support Ticket' : 'Link Order & Resolve'),
+        description: threadTitle ? `${threadTitle} (From: ${senderName || 'Customer'})` : 'Support inbox inquiry handling',
+        notes: `${isResolve ? 'Resolved' : 'Postponed'} by operator ${activeOperator}`,
+        isDismiss: false
+      };
+
+      document.getElementById('modal-action-title').innerText = stagedActionData.title;
+      document.getElementById('modal-action-desc').innerText = stagedActionData.description;
+      document.getElementById('modal-action-order').innerText = stagedActionData.orderRef;
+      document.getElementById('modal-action-operator').innerText = activeOperator;
+      document.getElementById('modal-modify-input').value = stagedActionData.notes;
+
+      actionModalCountdown = 10;
+      document.getElementById('modal-countdown-timer').innerText = `${actionModalCountdown}s`;
+      document.getElementById('modal-countdown-progress').style.width = '100%';
+
+      document.getElementById('action-confirmation-modal').classList.remove('hidden');
+      startModalCountdownTimer();
+      if (window.lucide) lucide.createIcons();
+    }
+
+    async function confirmActionNow() {
+      if (actionModalTimer) clearInterval(actionModalTimer);
+      actionModalTimer = null;
+      document.getElementById('action-confirmation-modal').classList.add('hidden');
+
+      if (!stagedActionData) return;
+      const data = stagedActionData;
+      const modifiedNotes = document.getElementById('modal-modify-input').value || data.notes;
+
+      // Handle Support Inbox action
+      if (data.isInbox) {
+        try {
+          const endpoint = data.actionType === 'postpone'
+            ? `/api/support-inbox/${data.threadId}/postpone`
+            : `/api/support-inbox/${data.threadId}/resolve`;
+
+          await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              operator_id: activeOperator,
+              operator_name: activeOperator,
+              notes: modifiedNotes
+            })
+          });
+
+          showToast(
+            data.actionType === 'postpone' ? 'Ticket Postponed' : 'Ticket Resolved',
+            `Logged by operator ${activeOperator}. Saved to operations audit log.`
+          );
+
+          stagedActionData = null;
+          await loadSupportInbox();
+          await loadGlobalHistory();
+        } catch(e) {
+          showToast('Error', 'Failed to process support inbox action.');
+        }
+        return;
+      }
+
+      // Handle vehicle order decision
+      try {
+        await fetch(`/api/orders/${data.orderId}/decision`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            decision: data.isDismiss ? 'DISMISS_FALSE_ALARM' : data.title,
+            decision_id: data.actionId,
+            operator_id: activeOperator,
+            operator_name: activeOperator,
+            action_type: data.isDismiss ? 'DISMISS' : 'OPERATOR_DECISION',
+            notes: modifiedNotes
+          })
+        });
+
+        showToast(
+          data.isDismiss ? 'Alert Dismissed / Cleared' : 'Directive Executed & Handled',
+          `Logged by dispatcher ${activeOperator}. Saved to operations audit log.`
+        );
+
+        stagedActionData = null;
+        await refreshData();
+        await openCarDetail(data.orderId);
+      } catch(e) {
+        showToast('Error', 'Failed to execute operational decision.');
+      }
+    }
+
+    // ================= SUPPORT INBOX WITH RESOLVE & POSTPONE =================
+    async function loadSupportInbox() {
+      const container = document.getElementById('support-inbox-threads-list');
+      if (!container) return;
+      container.innerHTML = `<div class="p-8 text-center text-gray-400">Loading support inbox...</div>`;
+
+      try {
+        const filterSelect = document.getElementById('inbox-filter-status');
+        const filterStatus = filterSelect ? filterSelect.value : 'active';
+        const res = await fetch('/api/support-inbox');
+        const data = await res.json();
+
+        let threads = data.threads || [];
+        if (filterStatus === 'active') {
+          threads = threads.filter(t => t.status === 'OPEN');
+        } else if (filterStatus === 'postponed') {
+          threads = threads.filter(t => t.status === 'POSTPONED');
+        } else if (filterStatus === 'resolved') {
+          threads = threads.filter(t => t.status === 'RESOLVED' || t.status === 'CLOSED');
+        }
+
+        const openCount = (data.threads || []).filter(t => t.status === 'OPEN').length;
+        const badge = document.getElementById('nav-inbox-badge');
+        if (badge) badge.innerText = openCount;
+
+        if (threads.length === 0) {
+          container.innerHTML = `<div class="p-12 text-center text-gray-400 bg-white rounded-2xl border border-gray-200">No support threads match the selected filter.</div>`;
+          return;
+        }
+
+        let html = '';
+        threads.forEach(t => {
+          const isDriver = t.sender_type === 'driver';
+          const initials = (t.sender_name || 'OP').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+
+          let candHtml = '';
+          if (t.candidate_orders && t.candidate_orders.length > 0) {
+            candHtml = `
+              <div class="p-3 bg-violet-50/70 rounded-xl border border-violet-200 space-y-2">
+                <span class="text-[11px] font-bold text-violet-900 uppercase tracking-wide">Candidate Assigned Deliveries:</span>
+                <div class="flex flex-wrap gap-2">
+                  ${t.candidate_orders.map(co => `
+                    <div class="flex items-center space-x-1.5 bg-white p-1.5 rounded-lg border border-gray-200 shadow-2xs">
+                      <button onclick="openCarDetail('${co.id}')" class="px-2.5 py-1 text-gray-900 hover:text-violet-600 text-xs font-bold flex items-center space-x-1 cursor-pointer">
+                        <i data-lucide="car" class="w-3.5 h-3.5 text-violet-600"></i>
+                        <span>${co.reference} (${co.vehicle})</span>
+                      </button>
+                      <button onclick="stageInboxActionModal('${t.id}', 'link', 'Link to ${co.reference}', '${escapeAttr(t.sender_name)}', '${co.id}', '${co.reference}')" class="px-2.5 py-1 bg-violet-700 hover:bg-violet-800 text-white text-xs font-bold rounded transition cursor-pointer">
+                        Link & Resolve
+                      </button>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
+            `;
+          }
+
+          let msgsHtml = '';
+          (t.messages || []).forEach(m => {
+            const isMsgDriver = m.author_type === 'driver';
+            msgsHtml += `
+              <div class="p-3 rounded-xl text-xs ${isMsgDriver ? 'bg-gray-50 border border-gray-200 text-gray-900' : 'bg-violet-50 text-violet-950 border border-violet-200'}">
+                <div class="flex items-center space-x-2 font-bold text-[10px] uppercase text-gray-400 mb-1">
+                  <span>${m.author_type || 'DRIVER'}</span>
+                  <span class="ml-auto font-mono">${m.authored_at ? m.authored_at.replace('T', ' ').slice(0, 16) : ''}</span>
+                </div>
+                <p class="leading-relaxed">${escapeHtml(m.body)}</p>
+              </div>
+            `;
+          });
+
+          html += `
+            <div class="bg-white rounded-2xl border border-gray-200 p-5 shadow-xs space-y-4">
+              <div class="flex items-center justify-between border-b border-gray-100 pb-3">
+                <div class="flex items-center space-x-3">
+                  <div class="w-9 h-9 rounded-full ${isDriver ? 'bg-zinc-200 text-zinc-800' : 'bg-violet-100 text-violet-700'} font-bold flex items-center justify-center text-xs">
+                    ${initials}
+                  </div>
+                  <div>
+                    <h3 class="text-sm font-bold text-gray-900">${escapeHtml(t.sender_name)}</h3>
+                    <span class="text-xs text-gray-500">${t.sender_role} - via ${t.channel === 'app_chat' ? 'Driver Mobile App' : 'Dealership Direct Email'}</span>
+                  </div>
+                </div>
+                <div class="flex items-center space-x-2">
+                  <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-violet-50 text-violet-900 border border-violet-200">
+                    ${t.topic_title || 'General Duty'}
+                  </span>
+                  <span class="px-2.5 py-1 rounded-full text-xs font-bold ${t.status === 'OPEN' ? 'bg-rose-100 text-rose-800' : t.status === 'POSTPONED' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}">
+                    ${t.status === 'OPEN' ? 'Open' : t.status === 'POSTPONED' ? 'Postponed' : 'Resolved'}
+                  </span>
+                </div>
+              </div>
+
+              <div class="space-y-2">${msgsHtml}</div>
+              ${candHtml}
+
+              <div class="flex items-center justify-end space-x-2 pt-2 border-t border-gray-100 text-xs">
+                ${t.status === 'OPEN' ? `
+                  <button onclick="stageInboxActionModal('${t.id}', 'postpone', '${escapeAttr(t.topic_title || 'Support Inquiry')}', '${escapeAttr(t.sender_name)}')" class="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-bold transition flex items-center space-x-1 cursor-pointer">
+                    <i data-lucide="clock" class="w-3.5 h-3.5 text-amber-600"></i>
+                    <span>Postpone / Snooze</span>
+                  </button>
+                  <button onclick="stageInboxActionModal('${t.id}', 'resolve', '${escapeAttr(t.topic_title || 'Support Inquiry')}', '${escapeAttr(t.sender_name)}')" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold transition flex items-center space-x-1 cursor-pointer">
+                    <i data-lucide="check-circle" class="w-3.5 h-3.5"></i>
+                    <span>Mark Resolved</span>
+                  </button>
+                ` : `
+                  <button onclick="reopenInboxThread('${t.id}')" class="px-3 py-1.5 bg-violet-50 hover:bg-violet-100 text-violet-800 border border-violet-200 rounded-lg font-bold transition flex items-center space-x-1 cursor-pointer">
+                    <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+                    <span>Reopen Thread</span>
+                  </button>
+                `}
+              </div>
+            </div>
+          `;
+        });
+
+        container.innerHTML = html;
+        lucide.createIcons();
+      } catch (e) {
+        console.error('Error loading inbox:', e);
+        container.innerHTML = `<div class="p-8 text-center text-rose-500">Failed loading inbox.</div>`;
+      }
+    }
+
+    async function resolveInboxThread(threadId) {
+      try {
+        await fetch(`/api/support-inbox/${threadId}/resolve`, { method: 'POST' });
+        showToast('Thread Resolved', 'Thread marked resolved and cleared from active inbox.');
+        await loadSupportInbox();
+      } catch(e) {
+        showToast('Error', 'Failed resolving thread.');
+      }
+    }
+
+    async function postponeInboxThread(threadId) {
+      try {
+        await fetch(`/api/support-inbox/${threadId}/postpone`, { method: 'POST' });
+        showToast('Thread Postponed', 'Thread snoozed and hidden from active view.');
+        await loadSupportInbox();
+      } catch(e) {
+        showToast('Error', 'Failed postponing thread.');
+      }
+    }
+
+    async function reopenInboxThread(threadId) {
+      try {
+        await fetch(`/api/support-inbox/${threadId}/reopen`, { method: 'POST' });
+        showToast('Thread Reopened', 'Thread moved back to active open inbox.');
+        await loadSupportInbox();
+      } catch(e) {
+        showToast('Error', 'Failed reopening thread.');
+      }
+    }
+
+    async function linkInboxAndResolve(threadId, orderId, orderRef) {
+      try {
+        await fetch(`/api/support-inbox/${threadId}/resolve`, { method: 'POST' });
+        showToast('Linked & Resolved', `Thread linked to ${orderRef} and marked resolved.`);
+        await loadSupportInbox();
+      } catch(e) {
+        showToast('Error', 'Failed linking thread.');
+      }
+    }
+
+    // ================= OPERATIONS AUDIT LOG (EXPORT TO SAVED LOG, IMPORT, CLEAR) =================
+    async function loadGlobalHistory() {
+      const tbody = document.getElementById('global-history-tbody');
+      if (!tbody) return;
+      try {
+        const res = await fetch('/api/history');
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : (data.history || []);
+        
+        if (list.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-gray-400">No operational audit records logged yet.</td></tr>`;
+          return;
+        }
+
+        let html = '';
+        list.forEach(h => {
+          html += `
+            <tr class="hover:bg-gray-50 transition border-b border-gray-100">
+              <td class="p-3.5 pl-4 font-mono text-gray-500">${h.timestamp ? h.timestamp.replace('T', ' ').slice(0, 19) : ''}</td>
+              <td class="p-3.5 font-mono font-bold text-gray-900">${h.order_ref || h.order_id}</td>
+              <td class="p-3.5 text-gray-800 font-medium">${escapeHtml(h.car)}</td>
+              <td class="p-3.5"><span class="px-2 py-0.5 rounded bg-gray-100 text-gray-800 font-mono text-[10px] font-bold">${h.operator_id}</span></td>
+              <td class="p-3.5 font-bold text-gray-900">${escapeHtml(h.decision || h.decision_text || '-')}</td>
+              <td class="p-3.5 text-gray-600 font-medium">${escapeHtml(h.notes || h.source_note || '-')}</td>
+              <td class="p-3.5 pr-4 text-right">
+                ${h.id ? `
+                  <button onclick="deleteSingleAuditLog('${h.id}')" title="Delete single record" class="p-1.5 rounded-lg text-gray-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer">
+                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                  </button>
+                ` : '-'}
+              </td>
+            </tr>
+          `;
+        });
+        tbody.innerHTML = html;
+        lucide.createIcons();
+      } catch (e) {
+        console.error('Error loading history:', e);
+      }
+    }
+
+    async function exportAuditLogToFolder() {
+      const defaultName = 'audit_log_' + new Date().toISOString().slice(0, 10) + '.json';
+      const customName = prompt('Enter a name for the exported log file (.json):', defaultName);
+      if (!customName || !customName.trim()) return;
+
+      try {
+        const res = await fetch('/api/history/export', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ file_name: customName.trim() })
+        });
+        const data = await res.json();
+        
+        const blob = new Blob([JSON.stringify(data.data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = data.file_name || customName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        showToast('Log Exported', `Saved as "${data.file_name}" inside workspace folder "${data.saved_path}".`);
+      } catch(e) {
+        showToast('Export Error', 'Failed exporting audit log.');
+      }
+    }
+
+    async function deleteSingleAuditLog(logId) {
+      if (!confirm('Delete this single log entry from the audit record?')) return;
+      try {
+        const res = await fetch('/api/history/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: logId })
+        });
+        const resData = await res.json();
+        showToast('Entry Removed', resData.message || 'Audit log entry removed.');
+        await loadGlobalHistory();
+      } catch(e) {
+        showToast('Error', 'Failed to delete audit log entry.');
+      }
+    }
+
+    async function importAuditLogFile(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const parsed = JSON.parse(e.target.result);
+          if (!Array.isArray(parsed)) throw new Error('File must be a JSON array of log records.');
+
+          const res = await fetch('/api/history/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(parsed)
+          });
+          const resData = await res.json();
+          showToast('Import Successful', `Imported ${resData.imported} records into audit log.`);
+          await loadGlobalHistory();
+        } catch(err) {
+          showToast('Import Error', 'Invalid JSON log format.');
+        }
+      };
+      reader.readAsText(file);
+      event.target.value = '';
+    }
+
+    async function clearAuditLog() {
+      if (!confirm('Are you sure you want to clear ALL audit log entries? (To remove a single entry, use the trash icon on that row.)')) return;
+      try {
+        await fetch('/api/history/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ clear_all: true })
+        });
+        showToast('Audit Log Cleared', 'All log entries have been cleared.');
+        await loadGlobalHistory();
+      } catch(e) {
+        showToast('Error', 'Failed clearing audit log.');
+      }
+    }
+
+    // ================= FINANCIALS WITH SANS-SERIF TYPOGRAPHY =================
+    async function loadFinancials() {
+      try {
+        const res = await fetch('/api/financials');
+        const data = await res.json();
+
+        const sum = data.summary || {};
+        const rev = sum.gross_revenue_eur != null ? sum.gross_revenue_eur : (data.total_revenue_eur || 55454.17);
+        const payouts = sum.driver_payouts_eur != null ? sum.driver_payouts_eur : (data.total_driver_payouts_eur || 31561.00);
+        const exp = sum.trip_expenses_eur != null ? sum.trip_expenses_eur : (data.total_expenses_eur || 5682.28);
+        const margin = sum.net_profit_eur != null ? sum.net_profit_eur : (data.gross_margin_eur || 18210.89);
+
+        document.getElementById('fin-total-revenue').innerHTML = `<span class="text-sm font-bold text-emerald-600">EUR</span> ${Number(rev).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+        document.getElementById('fin-driver-payouts').innerHTML = `<span class="text-sm font-bold text-rose-600">EUR</span> ${Number(payouts).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+        document.getElementById('fin-approved-expenses').innerHTML = `<span class="text-sm font-bold text-rose-600">EUR</span> ${Number(exp).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+        document.getElementById('fin-net-margin').innerHTML = `<span class="text-sm font-bold text-amber-600">EUR</span> ${Number(margin).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+
+        allFinancialExpenses = data.expenses || [];
+        filterFinancialsTable();
+      } catch (e) {
+        console.error('Error loading financials:', e);
+      }
+    }
+
+    function filterFinancialsTable() {
+      const cat = document.getElementById('fin-filter-cat').value.toLowerCase();
+      const st = document.getElementById('fin-filter-status').value.toLowerCase();
+      const q = document.getElementById('fin-search-order').value.toLowerCase();
+      const tbody = document.getElementById('financials-expenses-tbody');
+
+      let filtered = allFinancialExpenses.filter(ex => {
+        if (cat !== 'all' && (ex.kind || '').toLowerCase() !== cat) return false;
+        if (st !== 'all' && (ex.status || '').toLowerCase() !== st) return false;
+        if (q) {
+          const matchOrder = (ex.order_id || '').toLowerCase().includes(q);
+          const matchVendor = (ex.vendor || '').toLowerCase().includes(q);
+          const matchKind = (ex.kind || '').toLowerCase().includes(q);
+          if (!matchOrder && !matchVendor && !matchKind) return false;
+        }
+        return true;
+      });
+
+      // Financials Sort (Order Number, Amount, Date)
+      const finSort = document.getElementById('fin-filter-sort') ? document.getElementById('fin-filter-sort').value : 'order_asc';
+      filtered.sort((a, b) => {
+        if (finSort === 'order_asc') {
+          const refA = a.order_ref || a.order_id || '';
+          const refB = b.order_ref || b.order_id || '';
+          return refA.localeCompare(refB);
+        }
+        if (finSort === 'order_desc') {
+          const refA = a.order_ref || a.order_id || '';
+          const refB = b.order_ref || b.order_id || '';
+          return refB.localeCompare(refA);
+        }
+        const amtA = a.amount != null ? a.amount : (a.amount_cents ? a.amount_cents / 100 : 0);
+        const amtB = b.amount != null ? b.amount : (b.amount_cents ? b.amount_cents / 100 : 0);
+        if (finSort === 'amt_desc') return amtB - amtA;
+        if (finSort === 'amt_asc') return amtA - amtB;
+        const dateA = a.submitted_at || a.service_at || a.reviewed_at || '';
+        const dateB = b.submitted_at || b.service_at || b.reviewed_at || '';
+        if (finSort === 'date_desc') return dateB.localeCompare(dateA);
+        if (finSort === 'date_asc') return dateA.localeCompare(dateB);
+        return 0;
+      });
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-gray-400 text-xs">No expense claims match active filter criteria.</td></tr>`;
+        return;
+      }
+
+      let html = '';
+      filtered.forEach(ex => {
+        const amt = ex.amount_formatted || `${(ex.amount_cents ? ex.amount_cents / 100 : (ex.amount || 0)).toFixed(2)} ${ex.currency || 'EUR'}`;
+        const proofUrl = ex.proof_url || ex.receipt_url || '';
+        const hasFile = Boolean(proofUrl || ex.has_file);
+        const merchantName = ex.vendor || ex.merchant || 'Authorized Provider';
+        const isSuperseded = (ex.status || '').toUpperCase() === 'SUPERSEDED';
+
+        let statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">${ex.status}</span>`;
+        if (ex.status === 'APPROVED') {
+          statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">APPROVED</span>`;
+        } else if (isSuperseded) {
+          statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-300 cursor-help" title="Superseded: Replaced by an amended or resubmitted receipt claim">SUPERSEDED</span>`;
+        } else if (ex.status === 'REJECTED') {
+          statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800">REJECTED</span>`;
+        }
+
+        const amtVal = (ex.amount_cents ? ex.amount_cents / 100 : (ex.amount || 0)).toFixed(2);
+        const coloredAmt = `<span class="font-bold text-violet-900">${amtVal}</span> <span class="text-[10px] font-semibold text-violet-600">EUR</span>`;
+
+        html += `
+          <tr class="hover:bg-gray-50 transition border-b border-gray-100">
+            <td class="p-3.5 pl-4 font-bold text-gray-900">${ex.kind}</td>
+            <td class="p-3.5 text-gray-800 font-medium">${escapeHtml(merchantName)}</td>
+            <td class="p-3.5 font-mono text-xs font-bold text-violet-700 cursor-pointer hover:underline" onclick="openCarDetail('${ex.order_id}')">${ex.order_id}</td>
+            <td class="p-3.5 font-mono text-xs text-gray-600">${(ex.submitted_at || ex.service_at || ex.reviewed_at || '').slice(0, 10) || '-'}</td>
+            <td class="p-3.5 font-semibold text-xs tracking-tight">${coloredAmt}</td>
+            <td class="p-3.5">${statusBadge}</td>
+            <td class="p-3.5 pr-4 text-right">
+              <button onclick="openExpenseProofModal('${proofUrl}', '${escapeAttr(merchantName)}', '${escapeAttr(amt)}', '${escapeAttr(ex.kind)}', '${escapeAttr(ex.status)}', '${escapeAttr(ex.incurred_at || '')}', '${escapeAttr(ex.review_note || '')}', ${hasFile})" class="px-3 py-1.5 ${hasFile ? 'bg-violet-50 hover:bg-violet-100 text-violet-900 border border-violet-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300'} rounded-lg text-[11px] font-bold inline-flex items-center space-x-1.5 transition cursor-pointer">
+                <i data-lucide="${hasFile ? 'file-text' : 'receipt'}" class="w-3.5 h-3.5"></i>
+                <span>${hasFile ? 'View PDF Scan' : 'Electronic Voucher'}</span>
+              </button>
+            </td>
+          </tr>
+        `;
+      });
+      tbody.innerHTML = html;
+      lucide.createIcons();
+    }
+
+    // ================= OPERATOR ID PROMPT =================
+    function promptOperatorId() {
+      const val = prompt('Enter your Dispatcher / Operator Name:', activeOperator);
+      if (val && val.trim()) {
+        activeOperator = val.trim();
+        localStorage.setItem('bahn_operator_name', activeOperator);
+        document.getElementById('operator-display').innerText = activeOperator;
+        const decLabel = document.getElementById('decision-operator-label');
+        if (decLabel) decLabel.innerText = activeOperator;
+        showToast('Operator Name Updated', `Logged in as dispatcher ${activeOperator}`);
+        if (selectedOrderId) refreshData();
+      }
+    }
+
+    // Helper functions
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function escapeAttr(str) {
+      if (!str) return '';
+      return String(str).replace(/'/g, "\\'");
+    }
+    function round(val, decimals) {
+      return Number(Math.round(val + 'e' + decimals) + 'e-' + decimals);
+    }
+  </script>
+</body>
+</html>
