@@ -288,9 +288,9 @@
     <!-- Right Operator & AI Assistant Trigger -->
     <div class="flex items-center space-x-3">
       <!-- Reset Simulation Button (For repeatable demos) -->
-      <button onclick="resetSimulationDemo()" title="Reset all vehicle incidents and overrides for demo" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700 text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer">
+      <button onclick="resetSimulationDemo()" title="Reset all operator overrides back to initial baseline dataset" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700 text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer">
         <i data-lucide="rotate-ccw" class="w-3.5 h-3.5 text-violet-400"></i>
-        <span>Reset Simulation</span>
+        <span>Reset Baseline</span>
       </button>
 
       <div onclick="promptOperatorId()" class="cursor-pointer flex items-center space-x-2 px-3 py-1 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-300 hover:border-zinc-500 transition text-xs">
@@ -477,17 +477,17 @@
               Verified by Bahn Sentinel Agent
             </span>
           </div>
-          <p class="text-xs text-emerald-900 leading-relaxed">
+          <p id="verified-safe-desc" class="text-xs text-emerald-900 leading-relaxed">
             This order is progressing on its automated flightpath. The Sentinel background agent verified all baseline requirements:
           </p>
-          <div class="grid grid-cols-2 gap-2 text-xs text-emerald-900 pt-1">
+          <div id="verified-safe-checks-grid" class="grid grid-cols-2 gap-2 text-xs text-emerald-900 pt-1">
             <div class="flex items-center space-x-2"><span>✓</span><span><strong>Corridor Telemetry:</strong> Active GPS beacon within 15 km scheduled waypoint corridor</span></div>
             <div class="flex items-center space-x-2"><span>✓</span><span><strong>Consignment Note:</strong> Digital e-CMR validated under carrier protocol</span></div>
             <div class="flex items-center space-x-2"><span>✓</span><span><strong>Site Clearance:</strong> Dealership release authorization confirmed</span></div>
-            <div class="flex items-center space-x-2"><span>✓</span><span><strong>Maritime Deck:</strong> Baltic Sea ferry allocation confirmed with carrier</span></div>
+            <div class="flex items-center space-x-2"><span>✓</span><span><strong>Highway Clearance:</strong> Toll transponder & road network clearance confirmed</span></div>
           </div>
-          <div class="text-[11px] text-emerald-700 italic border-t border-emerald-100 pt-2">
-            Snapshot checked at 2026-10-21 09:00 UTC. Next automated waypoint check scheduled at port gate arrival.
+          <div id="verified-safe-footer-note" class="text-[11px] text-emerald-700 italic border-t border-emerald-100 pt-2">
+            Snapshot verified at 2026-10-21 09:00 UTC. Next automated waypoint check scheduled at dealership compound entry.
           </div>
         </div>
 
@@ -1079,7 +1079,7 @@
     </div>
 
     <!-- Dynamic Prompt Suggestion Chips (Fleet vs Car Scope) -->
-    <div id="ai-quick-chips" class="p-2.5 bg-purple-50/50 border-b border-purple-100 flex flex-wrap gap-1.5 shrink-0 text-[11px]"></div>
+    <div id="ai-quick-chips" class="p-2.5 bg-purple-50/50 border-b border-purple-100 flex flex-wrap gap-1.5 shrink-0 text-[11px]"><div id="ai-quick-chips-container" class="flex flex-wrap gap-1.5"></div></div>
 
     <!-- Chat Messages Feed -->
     <div id="ai-chat-messages" class="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-3 bg-[#FAFBFD]">
@@ -1234,25 +1234,25 @@
 
       if (scope === 'car' && selectedOrderId) {
         container.innerHTML = `
-          <button onclick="sendQuickPrompt('What happened to this car and what are the recommended operator actions?')" class="px-2.5 py-1 rounded-full bg-white border border-purple-200 text-purple-900 hover:bg-purple-50 text-[11px] font-medium transition cursor-pointer">
+          <button onclick="sendQuickPrompt('What happened to this car?')" class="px-2.5 py-1 rounded-full bg-white border border-purple-200 text-purple-900 hover:bg-purple-50 text-[11px] font-medium transition cursor-pointer">
             🚗 What happened to this car?
           </button>
-          <button onclick="sendQuickPrompt('Check route milestones, delay risks, and sea crossings for this order.')" class="px-2.5 py-1 rounded-full bg-white border border-purple-200 text-purple-900 hover:bg-purple-50 text-[11px] font-medium transition cursor-pointer">
+          <button onclick="sendQuickPrompt('Check route & delays')" class="px-2.5 py-1 rounded-full bg-white border border-purple-200 text-purple-900 hover:bg-purple-50 text-[11px] font-medium transition cursor-pointer">
             🗺️ Check route & delays
           </button>
-          <button onclick="sendQuickPrompt('Verify all handover documents, CMR consignment, and inspection checklist.')" class="px-2.5 py-1 rounded-full bg-white border border-purple-200 text-purple-900 hover:bg-purple-50 text-[11px] font-medium transition cursor-pointer">
+          <button onclick="sendQuickPrompt('Verify documents & proofs')" class="px-2.5 py-1 rounded-full bg-white border border-purple-200 text-purple-900 hover:bg-purple-50 text-[11px] font-medium transition cursor-pointer">
             📄 Verify documents & proofs
           </button>
         `;
       } else {
         container.innerHTML = `
-          <button onclick="sendQuickPrompt('Give me a high-level overview of the most critical fleet bottlenecks.')" class="px-2.5 py-1 rounded-full bg-white border border-purple-200 text-purple-900 hover:bg-purple-50 text-[11px] font-medium transition cursor-pointer">
+          <button onclick="sendQuickPrompt('Fleet overview & bottlenecks')" class="px-2.5 py-1 rounded-full bg-white border border-purple-200 text-purple-900 hover:bg-purple-50 text-[11px] font-medium transition cursor-pointer">
             📊 Fleet overview & bottlenecks
           </button>
-          <button onclick="sendQuickPrompt('Which orders require immediate human operator intervention right now?')" class="px-2.5 py-1 rounded-full bg-white border border-purple-200 text-purple-900 hover:bg-purple-50 text-[11px] font-medium transition cursor-pointer">
+          <button onclick="sendQuickPrompt('Which orders require immediate operator intervention?')" class="px-2.5 py-1 rounded-full bg-white border border-purple-200 text-purple-900 hover:bg-purple-50 text-[11px] font-medium transition cursor-pointer">
             ⚡ Urgent operator directives
           </button>
-          <button onclick="sendQuickPrompt('Summarize all unlinked support inbox communications.')" class="px-2.5 py-1 rounded-full bg-white border border-purple-200 text-purple-900 hover:bg-purple-50 text-[11px] font-medium transition cursor-pointer">
+          <button onclick="sendQuickPrompt('Support inbox summary')" class="px-2.5 py-1 rounded-full bg-white border border-purple-200 text-purple-900 hover:bg-purple-50 text-[11px] font-medium transition cursor-pointer">
             📬 Support inbox summary
           </button>
         `;
@@ -1370,6 +1370,7 @@ All directives staged with 10-second human safety window.`);
     let mapRouteLine = [];
     let currentRouteBounds = null;
 
+    
     document.addEventListener('DOMContentLoaded', () => {
       init();
     });
@@ -1716,17 +1717,17 @@ All directives staged with 10-second human safety window.`);
       if (att && (att.severity === 'pending' || att.state === 'HANDLED_PENDING_CONFIRMATION' || att.category === 'handled')) {
         alertBox.classList.remove('hidden');
         if (safeBox) safeBox.classList.add('hidden');
-        alertBox.className = 'mb-6 p-4 rounded-2xl bg-indigo-50 border-2 border-indigo-200 text-indigo-950 flex items-start space-x-3.5 shadow-xs';
+        alertBox.className = 'mb-6 p-4 rounded-2xl bg-purple-50 border-2 border-purple-300 text-purple-950 flex items-start space-x-3.5 shadow-xs';
         if (alertIcon) {
           alertIcon.setAttribute('data-lucide', 'clock');
-          alertIcon.className = 'w-5 h-5 text-indigo-600 shrink-0 mt-0.5';
+          alertIcon.className = 'w-5 h-5 text-purple-600 shrink-0 mt-0.5';
         }
         if (alertTitle) {
-          alertTitle.className = 'font-bold text-indigo-900 text-sm block';
+          alertTitle.className = 'font-bold text-purple-900 text-sm block';
           alertTitle.innerText = `Handled — Pending External Confirmation: ${att.short_title || att.headline}`;
         }
         if (alertDesc) {
-          alertDesc.className = 'text-indigo-800 leading-relaxed font-medium';
+          alertDesc.className = 'text-purple-800 leading-relaxed font-medium';
           alertDesc.innerText = att.full_description || 'Operator directive recorded. Order staged in handled state until driver/counterparty confirmation is received.';
         }
       } else if (att && att.needs_human) {
@@ -1747,7 +1748,40 @@ All directives staged with 10-second human safety window.`);
         }
       } else {
         alertBox.classList.add('hidden');
-        if (safeBox) safeBox.classList.remove('hidden');
+        if (safeBox) {
+          safeBox.classList.remove('hidden');
+          const pCity = (addr && addr.coordinates) ? addr.coordinates.pickup_city : 'Origin';
+          const dCity = (addr && addr.coordinates) ? addr.coordinates.delivery_city : 'Destination';
+          const hasFerry = Boolean(addr && addr.coordinates && addr.coordinates.has_ferry);
+          const vehName = v ? `${v.make} ${v.model}` : 'Vehicle';
+          const plate = (v && v.registration) ? v.registration : 'Reg Pending';
+          
+          let distText = 'corridor active';
+          if (data.raw_packet && data.raw_packet.tracking_observations && data.raw_packet.tracking_observations.length > 0) {
+            const rem = data.raw_packet.tracking_observations[0].distance_remaining_km;
+            if (rem) distText = `${rem} km remaining`;
+          }
+
+          const descEl = document.getElementById('verified-safe-desc');
+          if (descEl) descEl.innerText = `Vehicle ${vehName} (${plate}) is moving on schedule along the ${pCity} → ${dCity} transit corridor. Sentinel background agent verified all baseline requirements:`;
+          
+          let checksHtml = `
+            <div class="flex items-center space-x-2"><span>✓</span><span><strong>Corridor Telemetry:</strong> Active GPS beacon on ${escapeHtml(pCity)} → ${escapeHtml(dCity)} (${distText})</span></div>
+            <div class="flex items-center space-x-2"><span>✓</span><span><strong>Consignment Note:</strong> Digital e-CMR waybill prepared and countersigned</span></div>
+            <div class="flex items-center space-x-2"><span>✓</span><span><strong>Site Clearance:</strong> Dealership release authorization verified for ${escapeHtml(dCity)}</span></div>
+          `;
+          if (hasFerry) {
+            checksHtml += `<div class="flex items-center space-x-2"><span>✓</span><span><strong>Maritime Deck:</strong> Baltic Sea ferry allocation confirmed with carrier</span></div>`;
+          } else {
+            checksHtml += `<div class="flex items-center space-x-2"><span>✓</span><span><strong>Highway Clearance:</strong> Toll transponder & road network clearance confirmed</span></div>`;
+          }
+          const gridEl = document.getElementById('verified-safe-checks-grid');
+          if (gridEl) gridEl.innerHTML = checksHtml;
+          
+          const nextTarget = hasFerry ? 'Travemünde Baltic ferry check-in' : `${dCity} dealership compound entry`;
+          const footEl = document.getElementById('verified-safe-footer-note');
+          if (footEl) footEl.innerText = `Snapshot verified at 2026-10-21 09:00 UTC. Next automated waypoint check scheduled at ${nextTarget}.`;
+        }
       }
 
       // Populate Deal Details safely
@@ -2362,10 +2396,20 @@ All directives staged with 10-second human safety window.`);
       messages.forEach(m => {
         const rawRole = (m.sender_role || m.author_type || m.type || 'SYSTEM').toUpperCase();
         const ch = (m.channel || '').toLowerCase();
-        if (rawRole === 'DRIVER' || ch.includes('driver')) countDriver++;
-        else if (rawRole === 'CUSTOMER' || ch.includes('email') || ch.includes('customer')) countDealer++;
-        else if (rawRole === 'SITE' || rawRole === 'STATION' || ch.includes('station') || ch.includes('desk')) countSite++;
-        else countOps++;
+        const rec = (m.recipient_type || '').toUpperCase();
+        const vis = (m.visibility || 'PUBLIC').toUpperCase();
+
+        if (vis === 'INTERNAL' || ch.includes('internal') || ch.includes('note')) {
+          countOps++;
+        } else if (rawRole === 'DRIVER' || rec === 'DRIVER' || ch.includes('driver')) {
+          countDriver++;
+        } else if (rawRole === 'CUSTOMER' || rec === 'CUSTOMER' || ch.includes('customer') || ch.includes('email') || ch.includes('support')) {
+          countDealer++;
+        } else if (rawRole === 'SITE' || rawRole === 'STATION' || ch.includes('station') || ch.includes('desk')) {
+          countSite++;
+        } else {
+          countOps++;
+        }
       });
 
       if (document.getElementById('chat-count-all')) document.getElementById('chat-count-all').innerText = countAll;
@@ -2378,10 +2422,21 @@ All directives staged with 10-second human safety window.`);
         if (window.activeChatChannel === 'all') return true;
         const rawRole = (m.sender_role || m.author_type || m.type || 'SYSTEM').toUpperCase();
         const ch = (m.channel || '').toLowerCase();
-        if (window.activeChatChannel === 'driver_app') return rawRole === 'DRIVER' || ch.includes('driver');
-        if (window.activeChatChannel === 'dealership_email') return rawRole === 'CUSTOMER' || ch.includes('customer') || ch.includes('email');
-        if (window.activeChatChannel === 'station_desk') return rawRole === 'SITE' || rawRole === 'STATION' || ch.includes('station') || ch.includes('desk') || ch.includes('yard');
-        if (window.activeChatChannel === 'internal_ops') return rawRole === 'OPERATOR' || rawRole === 'AGENT' || rawRole === 'SYSTEM' || ch.includes('internal') || ch.includes('note');
+        const rec = (m.recipient_type || '').toUpperCase();
+        const vis = (m.visibility || 'PUBLIC').toUpperCase();
+
+        if (window.activeChatChannel === 'driver_app') {
+          return vis !== 'INTERNAL' && (rawRole === 'DRIVER' || rec === 'DRIVER' || ch.includes('driver'));
+        }
+        if (window.activeChatChannel === 'dealership_email') {
+          return vis !== 'INTERNAL' && (rawRole === 'CUSTOMER' || rec === 'CUSTOMER' || ch.includes('customer') || ch.includes('email') || ch.includes('support'));
+        }
+        if (window.activeChatChannel === 'station_desk') {
+          return rawRole === 'SITE' || rawRole === 'STATION' || ch.includes('station') || ch.includes('desk') || ch.includes('yard');
+        }
+        if (window.activeChatChannel === 'internal_ops') {
+          return vis === 'INTERNAL' || ch.includes('internal') || ch.includes('note') || (rawRole === 'OPERATOR' && rec === 'OPERATOR');
+        }
         return true;
       });
 
@@ -2484,17 +2539,17 @@ All directives staged with 10-second human safety window.`);
 
     // ================= SIMULATION RESET (FOR REPEATABLE DEMOS) =================
     async function resetSimulationDemo() {
-      if (!confirm('Reset simulation? All vehicle alerts, support messages, and incident overrides will return to the baseline dataset for a fresh demo.')) return;
+      if (!confirm('Reset baseline? All vehicle alerts, support messages, and incident overrides will return to the initial dataset for a fresh demo.')) return;
       try {
         const res = await fetch('/api/simulation/reset', { method: 'POST' });
         if (res.ok) {
-          showToast('Simulation Reset', 'Baseline dataset restored for demo.');
+          showToast('Baseline Reset', 'Initial baseline dataset restored.');
           selectedOrderId = null;
           await refreshData();
           goToFleetView();
         }
       } catch (e) {
-        showToast('Error', 'Failed to reset simulation.');
+        showToast('Error', 'Failed to reset baseline.');
       }
     }
 
